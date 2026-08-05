@@ -493,7 +493,7 @@
     <visual>
       <origin
         xyz="0 0 0"
-        rpy="0 0 0" />
+        rpy="1.5708 0 0" />
       <geometry>
         <mesh
           filename="package://car_description/meshes/Link_laser.STL" />
@@ -519,7 +519,7 @@
     type="fixed">
     <origin
       xyz="0 0.48 0.0275"
-      rpy="1.5708 0 0" />
+      rpy="0 0 -1.5708" />
     <parent
       link="base_link" />
     <child
@@ -635,4 +635,51 @@
     <mu1>1.0</mu1>
     <mu2>1.0</mu2>
   </gazebo>
+
+  <gazebo reference="Link_laser">  <!-- 将 "Link_laser" 替换为你的雷达link名称 -->
+  <sensor name="laserscan" type="ray">
+    <!-- 基本设置 -->
+    <always_on>true</always_on>      <!-- 是否始终开启 -->
+    <visualize>true</visualize>      <!-- 在Gazebo中可视化射线 -->
+    <update_rate>10</update_rate>    <!-- 更新频率 (Hz) -->
+    <pose>0 0 0 0 0 0</pose>         <!-- 传感器相对link的位姿偏移 -->
+
+    <!-- 射线参数 -->
+    <ray>
+      <!-- 水平扫描参数 -->
+      <scan>
+        <horizontal>
+          <samples>360</samples>        <!-- 采样点数 -->
+          <resolution>1.0</resolution>  <!-- 分辨率，通常为1 -->
+          <min_angle>1.0472</min_angle>    <!-- 起始角度 (rad)，0通常指正前方 -->
+          <max_angle>5.2360</max_angle><!-- 结束角度 (rad)，2*pi为360度 -->
+        </horizontal>
+      </scan>
+      <!-- 测距范围 -->
+      <range>
+        <min>0.12</min>  <!-- 最小测量距离 (m) -->
+        <max>8.0</max>   <!-- 最大测量距离 (m) -->
+        <resolution>0.015</resolution> <!-- 距离分辨率 (m) -->
+      </range>
+      <!-- 噪声模型 -->
+      <noise>
+        <type>gaussian</type> <!-- 高斯噪声 -->
+        <mean>0.0</mean>       <!-- 均值 -->
+        <stddev>0.01</stddev>  <!-- 标准差 -->
+      </noise>
+    </ray>
+
+    <!-- ROS插件配置 -->
+    <plugin name="gazebo_ros_laser_controller" filename="libgazebo_ros_ray_sensor.so">
+      <ros>
+        <namespace>/</namespace>                        <!-- ROS命名空间 -->
+        <remapping>~/out:=scan</remapping>              <!-- 话题重映射，输出到/scan -->
+      </ros>
+      <output_type>sensor_msgs/LaserScan</output_type> <!-- 消息类型 -->
+      <frame_name>Link_laser</frame_name>              <!-- 数据对应的坐标系 -->
+    </plugin>
+
+  </sensor>
+  </gazebo>
+
 </robot>

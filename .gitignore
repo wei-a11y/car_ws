@@ -1,0 +1,7 @@
+# 忽略ROS 2的编译、安装和日志文件夹
+build/
+install/
+log/
+
+# 也建议忽略Python的缓存文件夹
+__pycache__/
