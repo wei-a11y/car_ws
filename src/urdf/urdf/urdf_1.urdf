@@ -1,0 +1,638 @@
+<robot
+  name="urdf_1">
+
+  <link name="base_footprint" />
+  <joint name="joint_name" type="fixed">
+    <origin xyz="0.0 0.0 0.145" rpy="0.0 0.0 -1.57079632679"/>
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <axis xyz="0.0 0.0 0.0"/>
+    <limit lower="0.0" upper="0.0" effort="0.0" velocity="0.0"/>
+  </joint>
+
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="2.7676E-17 -6.9095E-07 0.022647"
+        rpy="0 0 0" />
+      <mass
+        value="13.655" />
+      <inertia
+        ixx="1.2842"
+        ixy="5.5738E-19"
+        ixz="2.8429E-17"
+        iyy="1.7389"
+        iyz="8.4662E-07"
+        izz="0.45554" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="Link_R_motor">
+    <inertial>
+      <origin
+        xyz="-1.6267E-16 0.0040603 -0.0022725"
+        rpy="0 0 0" />
+      <mass
+        value="0.16764" />
+      <inertia
+        ixx="0.00018103"
+        ixy="-1.8792E-18"
+        ixz="3.5751E-21"
+        iyy="4.2194E-05"
+        iyz="-3.8785E-06"
+        izz="0.0001792" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_R_motor.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_R_motor.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_R_motor"
+    type="fixed">
+    <origin
+      xyz="0.268 0 -0.0459999999999998"
+      rpy="-3.14159265358978 0 1.5707963267949" />
+    <parent
+      link="base_link" />
+    <child
+      link="Link_R_motor" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="Link_R_wheel">
+    <inertial>
+      <origin
+        xyz="-0.0524780676109808 1.41206490944512E-15 2.84494650060196E-16"
+        rpy="0 0 0" />
+      <mass
+        value="0.988887196728421" />
+      <inertia
+        ixx="0.00522963361106489"
+        ixy="-3.89076829271372E-17"
+        ixz="-1.03118823978009E-17"
+        iyy="0.00276138890364012"
+        iyz="3.79470760369927E-19"
+        izz="0.00276138890364011" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_R_wheel.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_R_wheel.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_R_wheel"
+    type="continuous">
+    <origin
+      xyz="0 0.0560000000000009 0"
+      rpy="-0.31374961603542 0 -1.57079632679489" />
+    <parent
+      link="Link_R_motor" />
+    <child
+      link="Link_R_wheel" />
+    <axis
+      xyz="1 0 0" />
+  </joint>
+  <link
+    name="Link_L_motor">
+    <inertial>
+      <origin
+        xyz="-1.0996539736511E-16 0.00406025821830519 -0.00227245855211405"
+        rpy="0 0 0" />
+      <mass
+        value="0.167637868322072" />
+      <inertia
+        ixx="0.000181028175947113"
+        ixy="-1.84699862136097E-18"
+        ixz="-1.07277063325001E-21"
+        iyy="4.21942535582781E-05"
+        iyz="-3.87849424261692E-06"
+        izz="0.000179196693722463" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_L_motor.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_L_motor.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_L_motor"
+    type="fixed">
+    <origin
+      xyz="-0.268 0 -0.0459999999999998"
+      rpy="3.14159265358978 0 -1.5707963267949" />
+    <parent
+      link="base_link" />
+    <child
+      link="Link_L_motor" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="Link_L_wheel">
+    <inertial>
+      <origin
+        xyz="-0.0524780676109834 -8.88178419700125E-16 1.02869102125425E-15"
+        rpy="0 0 0" />
+      <mass
+        value="0.988887196728421" />
+      <inertia
+        ixx="0.00522963361106489"
+        ixy="3.39193652544587E-17"
+        ixz="-2.62899669607534E-17"
+        iyy="0.00276138890364012"
+        iyz="7.58941520739853E-19"
+        izz="0.00276138890364012" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_L_wheel.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_L_wheel.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_L_wheel"
+    type="continuous">
+    <origin
+      xyz="0 0.056 0"
+      rpy="-1.85 0 -1.5708" />
+    <parent
+      link="Link_L_motor" />
+    <child
+      link="Link_L_wheel" />
+    <axis
+      xyz="1 0 0" />
+  </joint>
+  <link
+    name="Link_F_holder">
+    <inertial>
+      <origin
+        xyz="-3.52357032440409E-14 -0.025560777699365 -0.00438193461397363"
+        rpy="0 0 0" />
+      <mass
+        value="0.0344907923602774" />
+      <inertia
+        ixx="2.06039975739628E-05"
+        ixy="1.59882042306095E-20"
+        ixz="-1.20702194983738E-20"
+        iyy="1.93437594179329E-05"
+        iyz="-3.94518025362099E-06"
+        izz="2.76356519539093E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_F_holder.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_F_holder.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_F_holder"
+    type="continuous">
+    <origin
+      xyz="0 0.375 -0.0245"
+      rpy="1.5708 0 2.9968" />
+    <parent
+      link="base_link" />
+    <child
+      link="Link_F_holder" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="Link_F_caster">
+    <inertial>
+      <origin
+        xyz="-0.0607530804496581 0.0400258699850806 -1.45267227477097E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.236379485864502" />
+      <inertia
+        ixx="0.000165153337888593"
+        ixy="-1.13322170301318E-07"
+        ixz="-6.48251882177358E-08"
+        iyy="0.000165209378330049"
+        iyz="8.30611756546866E-08"
+        izz="0.000294295206204224" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0.06 -0.04 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_F_caster.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0.06 -0.04 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_F_caster.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_F_caster"
+    type="continuous">
+    <origin
+      xyz="0 -0.07 -0.015"
+      rpy="1.5708 -0.81844 1.5708" />
+    <parent
+      link="Link_F_holder" />
+    <child
+      link="Link_F_caster" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+  <link
+    name="Link_B_holder">
+    <inertial>
+      <origin
+        xyz="3.84831055910695E-14 -0.025560777699365 -0.00438193461398861"
+        rpy="0 0 0" />
+      <mass
+        value="0.0344907923602774" />
+      <inertia
+        ixx="2.06039975739628E-05"
+        ixy="1.99010099955085E-20"
+        ixz="3.3881317890172E-21"
+        iyy="1.93437594179329E-05"
+        iyz="-3.94518025362094E-06"
+        izz="2.76356519539093E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_B_holder.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_B_holder.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_B_holder"
+    type="continuous">
+    <origin
+      xyz="0 -0.375 -0.024"
+      rpy="1.5708 0 3.0317" />
+    <parent
+      link="base_link" />
+    <child
+      link="Link_B_holder" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="Link_B_caster">
+    <inertial>
+      <origin
+        xyz="0.0558471858628283 0.011786899423349 -1.45267227477028E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.236379485864501" />
+      <inertia
+        ixx="0.000165153337888593"
+        ixy="-1.13322170301249E-07"
+        ixz="-6.48251882177006E-08"
+        iyy="0.000165209378330049"
+        iyz="8.30611756546391E-08"
+        izz="0.000294295206204224" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="-0.056 -0.012 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_B_caster.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="-0.056 -0.012 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_B_caster.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_B_caster"
+    type="continuous">
+    <origin
+      xyz="0 -0.0715 -0.017"
+      rpy="-1.5708 0.094002 -1.5708" />
+    <parent
+      link="Link_B_holder" />
+    <child
+      link="Link_B_caster" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+  <link
+    name="Link_laser">
+    <inertial>
+      <origin
+        xyz="6.04236390401587E-09 0.00405882035841088 3.24830731257553E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.201875516239374" />
+      <inertia
+        ixx="0.00011030851717415"
+        ixy="-1.4477084477744E-11"
+        ixz="-2.49911306088135E-11"
+        iyy="0.000147313391528108"
+        iyz="-7.69696051742169E-10"
+        izz="0.000110306425407583" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_laser.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_laser.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_laser"
+    type="fixed">
+    <origin
+      xyz="0 0.48 0.0275"
+      rpy="1.5708 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="Link_laser" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="Link_up_borad">
+    <inertial>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <mass
+        value="0" />
+      <inertia
+        ixx="0"
+        ixy="0"
+        ixz="0"
+        iyy="0"
+        iyz="0"
+        izz="0" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_up_borad.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/Link_up_borad.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_up_board"
+    type="fixed">
+    <origin
+      xyz="0 -0.36 0.01"
+      rpy="1.5707963267949 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="Link_up_borad" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <ros2_control name="GazeboSystem" type="system">
+    <hardware>
+      <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+    </hardware>
+
+    <joint name="Joint_L_wheel">
+      <command_interface name="velocity" />
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+
+    <joint name="Joint_R_wheel">
+      <command_interface name="velocity" />
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+
+    <joint name="Joint_F_holder">
+    <state_interface name="position"/>
+    <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="Joint_B_holder">
+    <state_interface name="position"/>
+    <state_interface name="velocity"/>
+    </joint>
+    
+    <joint name="Joint_F_caster">
+    <state_interface name="position"/>
+    <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="Joint_B_caster">
+    <state_interface name="position"/>
+    <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <gazebo>
+    <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+      <robot_param>robot_description</robot_param>
+      <robot_param_node>robot_state_publisher</robot_param_node>
+      <parameters>$(find car_description)/config/controllers.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+  <gazebo reference="Link_L_wheel">
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+  </gazebo>
+
+  <gazebo reference="Link_R_wheel">
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+  </gazebo>
+</robot>

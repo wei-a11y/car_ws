@@ -1,0 +1,42 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+    use_sim_time: true
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+
+diff_drive_controller:
+  ros__parameters:
+    left_wheel_names:
+      - Joint_L_wheel
+    right_wheel_names:
+      - Joint_R_wheel
+    wheel_separation: 0.648
+    wheel_radius: 0.1
+
+    wheels_per_side: 1
+    odom_frame_id: odom
+    base_frame_id: base_footprint
+    tf_frame_prefix_enable: false
+    enable_odom_tf: true
+    position_feedback: true
+    open_loop: false
+    publish_rate: 50.0
+    cmd_vel_timeout: 0.5
+    use_stamped_vel: false
+
+    # The SolidWorks export gives the two wheel joints opposite axis signs.
+    left_wheel_radius_multiplier: -1.0
+    right_wheel_radius_multiplier: 1.0
+
+    linear.x.has_velocity_limits: true
+    linear.x.max_velocity: 0.5
+    linear.x.min_velocity: -0.5
+
+    angular.z.has_velocity_limits: true
+    angular.z.max_velocity: 1.0
+    angular.z.min_velocity: -1.0
