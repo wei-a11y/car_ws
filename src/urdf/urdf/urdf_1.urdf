@@ -475,7 +475,7 @@
       xyz="0 0 1" />
   </joint>
   <link
-    name="Link_laser">
+    name="laser_link">
     <inertial>
       <origin
         xyz="6.04236390401587E-09 0.00405882035841088 3.24830731257553E-07"
@@ -496,7 +496,7 @@
         rpy="1.5708 0 0" />
       <geometry>
         <mesh
-          filename="package://car_description/meshes/Link_laser.STL" />
+          filename="package://car_description/meshes/laser_link.STL" />
       </geometry>
       <material
         name="">
@@ -510,7 +510,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://car_description/meshes/Link_laser.STL" />
+          filename="package://car_description/meshes/laser_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -523,7 +523,7 @@
     <parent
       link="base_link" />
     <child
-      link="Link_laser" />
+      link="laser_link" />
     <axis
       xyz="0 0 0" />
   </joint>
@@ -623,6 +623,12 @@
       <robot_param>robot_description</robot_param>
       <robot_param_node>robot_state_publisher</robot_param_node>
       <parameters>$(find car_description)/config/controllers.yaml</parameters>
+      <!-- 添加话题映射 -->
+      <ros>
+        <remapping>/diff_drive_controller/cmd_vel_unstamped:=/cmd_vel</remapping>
+        <remapping>/diff_drive_controller/odom:=/odom</remapping>
+        <remapping>/dynamic_joint_states:=/car/dynamic_joint_states</remapping>
+      </ros>
     </plugin>
   </gazebo>
 
@@ -636,7 +642,7 @@
     <mu2>1.0</mu2>
   </gazebo>
 
-  <gazebo reference="Link_laser">  <!-- 将 "Link_laser" 替换为你的雷达link名称 -->
+  <gazebo reference="laser_link">  <!-- 将 "laser_link" 替换为你的雷达link名称 -->
   <sensor name="laserscan" type="ray">
     <!-- 基本设置 -->
     <always_on>true</always_on>      <!-- 是否始终开启 -->
@@ -676,7 +682,7 @@
         <remapping>~/out:=scan</remapping>              <!-- 话题重映射，输出到/scan -->
       </ros>
       <output_type>sensor_msgs/LaserScan</output_type> <!-- 消息类型 -->
-      <frame_name>Link_laser</frame_name>              <!-- 数据对应的坐标系 -->
+      <frame_name>laser_link</frame_name>              <!-- 数据对应的坐标系 -->
     </plugin>
 
   </sensor>
