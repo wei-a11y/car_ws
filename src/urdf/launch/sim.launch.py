@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
@@ -8,9 +9,10 @@ from launch.actions import (
     RegisterEventHandler,
     SetEnvironmentVariable,
 )
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -32,6 +34,11 @@ def generate_launch_description():
     gazebo_launch = Path(get_package_share_directory("gazebo_ros")) / "launch" / "gazebo.launch.py"
 
     gui = LaunchConfiguration("gui")
+    rviz_enabled = LaunchConfiguration("rviz_child")
+    world = LaunchConfiguration("world")
+    spawn_x = LaunchConfiguration("x")
+    spawn_y = LaunchConfiguration("y")
+    spawn_yaw = LaunchConfiguration("yaw")
 
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(gazebo_launch)),
@@ -39,6 +46,7 @@ def generate_launch_description():
             "gui": gui,
             "server": "true",
             "verbose": "false",
+            "world": world,
         }.items(),
     )
 
@@ -47,7 +55,13 @@ def generate_launch_description():
     # share directory in GAZEBO_MODEL_PATH.
     gazebo_model_path = SetEnvironmentVariable(
         name="GAZEBO_MODEL_PATH",
-        value=str(package_share.parent),
+        value=[
+            str(package_share / "models"),
+            os.pathsep,
+            str(package_share.parent),
+            os.pathsep,
+            EnvironmentVariable("GAZEBO_MODEL_PATH", default_value=""),
+        ],
     )
 
     robot_state_publisher = Node(
@@ -71,9 +85,10 @@ def generate_launch_description():
         arguments=[
             "-topic", "robot_description",
             "-entity", "car",
-            "-x", "0.0",
-            "-y", "0.0",
+            "-x", spawn_x,
+            "-y", spawn_y,
             "-z", "0.05",
+            "-Y", spawn_yaw,
         ],
     )
 
@@ -106,6 +121,7 @@ def generate_launch_description():
         output="screen",
         arguments=["-d", str(package_share / "config" / "car.rviz")],
         parameters=[{"use_sim_time": True}],
+        condition=IfCondition(rviz_enabled),
     )
 
     load_diff_drive_after_joint_states = RegisterEventHandler(
@@ -128,11 +144,26 @@ def generate_launch_description():
             default_value="true",
             description="Set to false to run Gazebo headless.",
         ),
+        DeclareLaunchArgument(
+            "rviz",
+            default_value="true",
+            description="Set to false to skip RViz.",
+        ),
+        DeclareLaunchArgument(
+            "world",
+            default_value=str(package_share / "worlds" / "navigation.world"),
+            description="Gazebo world file.",
+        ),
+        DeclareLaunchArgument("x", default_value="0.0", description="Robot spawn x."),
+        DeclareLaunchArgument("y", default_value="0.0", description="Robot spawn y."),
+        DeclareLaunchArgument(
+            "yaw", default_value="0.0", description="Robot spawn yaw in radians."
+        ),
         gazebo_model_path,
         gazebo,
+        rviz,
         robot_state_publisher,
         spawn_entity,
         load_controllers_after_spawn,
         load_diff_drive_after_joint_states,
-        rviz,
     ])

@@ -1,0 +1,215 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /Navigation1
+      Splitter Ratio: 0.55
+    Tree Height: 700
+  - Class: rviz_common/Selection
+    Name: Selection
+  - Class: rviz_common/Tool Properties
+    Name: Tool Properties
+  - Class: rviz_common/Views
+    Name: Views
+  - Class: nav2_rviz_plugins/Navigation 2
+    Name: Navigation 2
+
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Alpha: 0.5
+      Cell Size: 1
+      Plane: XY
+      Plane Cell Count: 30
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/Map
+      Name: Static Map
+      Enabled: true
+      Alpha: 0.7
+      Color Scheme: map
+      Draw Behind: true
+      Topic:
+        Value: /map
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+      Use Timestamp: false
+    - Class: rviz_default_plugins/RobotModel
+      Name: Robot Model
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Collision Enabled: false
+      Visual Enabled: true
+      Update Interval: 0
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Frame Timeout: 15
+      Marker Scale: 0.5
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Update Interval: 0
+    - Class: rviz_default_plugins/LaserScan
+      Name: Laser Scan
+      Enabled: true
+      Topic:
+        Value: /scan
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Size (Pixels): 3
+      Style: Points
+      Decay Time: 0
+      Color Transformer: Intensity
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: nav2_rviz_plugins/ParticleCloud
+      Name: AMCL Particles
+      Enabled: true
+      Topic:
+        Value: /particle_cloud
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Color: 0; 180; 0
+      Shape: Arrow (Flat)
+      Min Arrow Length: 0.02
+      Max Arrow Length: 0.3
+    - Class: rviz_common/Group
+      Name: Navigation
+      Enabled: true
+      Displays:
+        - Class: rviz_default_plugins/Map
+          Name: Global Costmap
+          Enabled: true
+          Alpha: 0.3
+          Color Scheme: costmap
+          Draw Behind: false
+          Topic:
+            Value: /global_costmap/costmap
+            Reliability Policy: Reliable
+            Durability Policy: Transient Local
+            History Policy: Keep Last
+            Depth: 1
+        - Class: rviz_default_plugins/Map
+          Name: Local Costmap
+          Enabled: true
+          Alpha: 0.5
+          Color Scheme: costmap
+          Draw Behind: false
+          Topic:
+            Value: /local_costmap/costmap
+            Reliability Policy: Reliable
+            Durability Policy: Transient Local
+            History Policy: Keep Last
+            Depth: 1
+        - Class: rviz_default_plugins/Path
+          Name: Global Plan
+          Enabled: true
+          Topic:
+            Value: /plan
+            Reliability Policy: Reliable
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Depth: 5
+          Line Style: Lines
+          Line Width: 0.03
+          Color: 0; 255; 0
+          Buffer Length: 1
+        - Class: rviz_default_plugins/Path
+          Name: Local Plan
+          Enabled: true
+          Topic:
+            Value: /local_plan
+            Reliability Policy: Reliable
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Depth: 5
+          Line Style: Lines
+          Line Width: 0.04
+          Color: 255; 0; 255
+          Buffer Length: 1
+        - Class: rviz_default_plugins/Polygon
+          Name: Global Footprint
+          Enabled: true
+          Topic:
+            Value: /global_costmap/published_footprint
+            Reliability Policy: Reliable
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Depth: 5
+          Color: 0; 170; 255
+        - Class: rviz_default_plugins/Polygon
+          Name: Local Footprint
+          Enabled: true
+          Topic:
+            Value: /local_costmap/published_footprint
+            Reliability Policy: Reliable
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Depth: 5
+          Color: 255; 85; 0
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic:
+        Value: /initialpose
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Value: /goal_pose
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+    - Class: rviz_default_plugins/PublishPoint
+      Single click: true
+      Topic:
+        Value: /clicked_point
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Top Down
+      Angle: 0
+      Scale: 25
+      X: 0
+      Y: 0
+    Saved: ~
+
+Window Geometry:
+  Height: 900
+  Width: 1440
+  X: 100
+  Y: 100

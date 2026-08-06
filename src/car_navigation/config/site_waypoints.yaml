@@ -1,0 +1,9 @@
+# These values are intentionally disabled until the map-frame poses have been
+# measured in RViz. Nav2 starts with manual 2D Pose Estimate initialization.
+site_waypoints:
+  ros__parameters:
+    frame_id: map
+    calibrated: false
+    initial_pose: [0.0, 0.0, 0.0]
+    test_goal_1: [0.0, 0.0, 0.0]
+    test_goal_2: [0.0, 0.0, 0.0]
