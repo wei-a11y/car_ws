@@ -1,0 +1,22 @@
+string task_id
+string order_id
+string locker_id
+uint8 locker_slot
+geometry_msgs/PoseStamped slot_hint_pose
+string intake_frame
+float32 enter_distance_m
+float32 lift_distance_m
+---
+bool success
+uint16 error_code
+string message
+bool tray_at_intake
+bool arm_at_home
+bool transport_safe
+---
+uint8 phase
+float32 progress
+geometry_msgs/PoseStamped tool_pose
+float32 target_stability
+uint8 stable_frame_count
+float32 fork_opening_m

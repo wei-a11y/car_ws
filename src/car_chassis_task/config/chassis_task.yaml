@@ -1,0 +1,40 @@
+chassis_task_server:
+  ros__parameters:
+    use_sim_time: true
+    map_frame: map
+    base_frame: base_footprint
+    navigate_action: /navigate_to_pose
+    compute_path_action: /compute_path_to_pose
+    localization_required: true
+    require_module_safety_states: true
+    nav_server_timeout_s: 5.0
+    default_action_timeout_s: 120.0
+    planner_id: GridBased
+
+    search_timeout_s: 20.0
+    search_yaw_rate_rps: 0.10
+    search_sweep_period_s: 2.0
+    use_target_hint_in_simulation: true
+
+    control_rate_hz: 20.0
+    align_timeout_s: 30.0
+    max_align_linear_mps: 0.05
+    max_align_angular_rps: 0.20
+    linear_gain: 0.8
+    heading_gain: 1.5
+    yaw_gain: 1.2
+    rotate_in_place_threshold_rad: 0.35
+    hard_stop_range_m: 0.12
+
+velocity_arbiter:
+  ros__parameters:
+    use_sim_time: true
+    nav_topic: /cmd_vel
+    align_topic: /cmd_vel_align
+    output_topic: /cmd_vel_safe
+    emergency_stop_topic: /emergency_stop
+    nav_timeout_s: 0.50
+    align_timeout_s: 0.25
+    publish_rate_hz: 50.0
+    max_linear_mps: 0.50
+    max_angular_rps: 1.00

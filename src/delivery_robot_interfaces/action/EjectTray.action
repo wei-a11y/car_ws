@@ -1,0 +1,13 @@
+string task_id
+string order_id
+string receiver_id
+float32 target_gap_m
+---
+bool success
+uint16 error_code
+string message
+bool receiver_confirmed
+bool transport_safe
+---
+uint8 phase
+float32 push_position_m

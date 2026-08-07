@@ -625,7 +625,7 @@
       <parameters>$(find car_description)/config/controllers.yaml</parameters>
       <!-- 添加话题映射 -->
       <ros>
-        <remapping>/diff_drive_controller/cmd_vel_unstamped:=/cmd_vel</remapping>
+        <remapping>/diff_drive_controller/cmd_vel_unstamped:=/cmd_vel_safe</remapping>
         <remapping>/diff_drive_controller/odom:=/odom</remapping>
         <remapping>/dynamic_joint_states:=/car/dynamic_joint_states</remapping>
       </ros>

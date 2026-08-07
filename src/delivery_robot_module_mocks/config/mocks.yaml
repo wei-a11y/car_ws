@@ -1,0 +1,9 @@
+delivery_robot_module_mocks:
+  ros__parameters:
+    use_sim_time: true
+    arm_duration_s: 2.0
+    store_duration_s: 1.5
+    retrieve_duration_s: 1.5
+    eject_duration_s: 1.0
+    arm_force_failure: false
+    cargo_force_failure: false

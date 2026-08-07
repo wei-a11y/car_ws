@@ -47,6 +47,11 @@ ros2 launch car_navigation sim_navigation.launch.py \
   x:=0.0 y:=0.0 yaw:=0.0
 ```
 
+`x/y/yaw` 是 Gazebo world 坐标，不是 AMCL `map` 坐标。当前仿真默认
+Gazebo 出生位姿为 `(0, 0, 0)`，对应的地图初值估计为
+`(-14.65, -4.375, 1.2272)`。使用 `delivery_robot_bringup/full_sim.launch.py`
+时可分别通过 `x/y/yaw` 和 `initial_x/initial_y/initial_yaw` 修改这两组位姿。
+
 ## RViz 操作
 
 1. 等待地图、机器人和激光出现。
@@ -65,15 +70,17 @@ ros2 launch car_navigation sim_navigation.launch.py \
 |---|---|
 | 激光 | `/scan` (`sensor_msgs/msg/LaserScan`) |
 | 里程计 | `/odom` (`nav_msgs/msg/Odometry`) |
-| 速度 | `/cmd_vel` (`geometry_msgs/msg/Twist`) |
+| Nav2 速度输出 | `/cmd_vel` (`geometry_msgs/msg/Twist`) |
+| 底盘安全速度输入 | `/cmd_vel_safe` (`geometry_msgs/msg/Twist`) |
 | 导航 | `/navigate_to_pose` (`nav2_msgs/action/NavigateToPose`) |
 | `map -> odom` | AMCL |
 | `odom -> base_footprint` | `diff_drive_controller` |
 | 底盘和传感器静态/关节 TF | `robot_state_publisher` |
 
-不要在导航运行期间同时启动键盘遥控节点，否则它会与 Nav2 竞争速度控制权。
-Nav2 的恢复行为会按官方 Humble 启动结构在执行恢复时直接发布 `/cmd_vel`；
-正常路径跟踪命令经过 `/cmd_vel_nav` 和 `velocity_smoother` 后到达 `/cmd_vel`。
+不要在导航运行期间把键盘遥控直接重映射到底盘控制器。
+Nav2 正常跟踪和恢复行为最终发布 `/cmd_vel`；`car_chassis_task`
+的 `velocity_arbiter` 在 Nav2、柜前精对准和急停之间仲裁，仅向
+`/cmd_vel_safe` 发布底盘命令。
 
 ## 启动后检查
 

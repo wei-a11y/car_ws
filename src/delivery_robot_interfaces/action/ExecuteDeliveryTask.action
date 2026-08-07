@@ -1,0 +1,14 @@
+string task_id
+uint32 revision
+delivery_robot_interfaces/Order[] orders
+bool on_time_mode
+---
+bool success
+uint16 error_code
+string message
+string[] delivered_order_ids
+string[] failed_order_ids
+---
+uint8 phase
+string active_order_id
+float32 progress

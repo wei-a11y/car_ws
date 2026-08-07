@@ -1,0 +1,27 @@
+uint8 INITIALIZING=0
+uint8 LOCALIZING=1
+uint8 IDLE=2
+uint8 VALIDATING_TASK=3
+uint8 PLANNING_TASK=4
+uint8 PICKUP_APPROACH=10
+uint8 PICKUP_SEARCH=11
+uint8 PICKUP_ALIGN=12
+uint8 WAIT_DOOR_OPEN=13
+uint8 PICK_TRAY=14
+uint8 STORE_TRAY=15
+uint8 DELIVERY_APPROACH=20
+uint8 RETRIEVE_TRAY=21
+uint8 EJECT_TRAY=22
+uint8 RETURN_HOME=30
+uint8 RECOVERY=40
+uint8 FAULT=41
+uint8 SAFE_STOP=42
+uint8 COMPLETED=50
+
+std_msgs/Header header
+string task_id
+uint8 phase
+string active_order_id
+float32 progress
+uint16 error_code
+string detail

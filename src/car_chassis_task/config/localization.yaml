@@ -1,0 +1,25 @@
+localization_supervisor:
+  ros__parameters:
+    use_sim_time: true
+    map_frame: map
+    publish_initial_pose: true
+    initial_x_m: 12.5
+    initial_y_m: 11
+    initial_yaw_rad: -2.0
+    initial_xy_variance: 0.01
+    initial_yaw_variance: 0.007615  # (5 deg)^2
+    initial_pose_delay_s: 3.0
+    initial_pose_repeat_count: 3
+    initial_pose_repeat_period_s: 1.0
+    xy_variance_threshold: 0.04
+    yaw_variance_threshold: 0.0305
+    # AMCL normally publishes only a few samples while the robot remains still.
+    stable_samples_required: 3
+    amcl_timeout_s: 3.0
+    global_relocalization_after_s: 45.0
+    # Current Gazebo spawn has a known map-frame prior. Enable this only for an
+    # actually unknown startup pose, together with an active scan motion.
+    enable_global_relocalization: false
+    require_scan: true
+    require_odom: true
+    sensor_timeout_s: 2.0

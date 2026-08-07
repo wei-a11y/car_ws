@@ -1,0 +1,12 @@
+delivery_robot_task_manager:
+  ros__parameters:
+    use_sim_time: true
+    queue_capacity: 20
+    module_ready_timeout_s: 60.0
+    door_open_timeout_s: 30.0
+    action_timeout_s: 180.0
+    pickup_target_gap_m: 0.075
+    require_manual_door_open: true
+    intake_frame: intake_frame
+    arm_enter_distance_m: 0.25
+    arm_lift_distance_m: 0.003

@@ -1,0 +1,12 @@
+string task_id
+string order_id
+uint8 source_slot
+---
+bool success
+uint16 error_code
+string message
+bool tray_at_transfer
+bool transport_safe
+---
+uint8 phase
+float32 progress

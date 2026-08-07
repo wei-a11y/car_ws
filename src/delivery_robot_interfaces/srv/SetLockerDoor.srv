@@ -1,0 +1,6 @@
+string locker_id
+uint8 locker_slot
+bool open
+---
+bool success
+string message

@@ -1,0 +1,27 @@
+chassis_task_server:
+  ros__parameters:
+    # Selected vehicle side facing the locker. Change only this value to swap
+    # the working side; station target +x must point outward into the aisle.
+    docking_side: right
+
+    # Chassis bounds relative to base_link/base_footprint are x=+/-0.55 m and
+    # y=+/-0.35 m. Side-facing alignment therefore uses the y half-width.
+    base_side_offset_m: 0.35
+
+    # Longitudinal x offset of the working reference on the selected side.
+    # It is independent from the front arm/cargo opening described below.
+    side_reference_x_m: 0.0
+
+    target_gap_m: 0.075
+    min_gap_m: 0.050
+    max_gap_m: 0.100
+    lateral_tolerance_m: 0.020
+    xy_tolerance_m: 0.015
+    yaw_tolerance_rad: 0.0349066  # 2 deg
+    stable_cycles: 10
+
+    # Reserved arm/cargo handoff envelope at the vehicle front, interpreted
+    # from (550, +/-15, 650 +/-150) mm relative to base_link.
+    front_opening_center_xyz_m: [0.55, 0.0, 0.65]
+    front_opening_y_tolerance_m: 0.015
+    front_opening_z_tolerance_m: 0.150

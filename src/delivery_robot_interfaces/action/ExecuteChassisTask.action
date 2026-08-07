@@ -1,0 +1,45 @@
+uint8 APPROACH_PICKUP=1
+uint8 APPROACH_DELIVERY=2
+uint8 RETURN_HOME=3
+uint8 PREPARE_ROUTE=4
+uint8 STATION_LOCKER=1
+uint8 STATION_RECEIVER=2
+uint8 STATION_HOME=3
+
+string task_id
+string order_id
+uint8 operation
+string station_id
+uint8 station_type
+geometry_msgs/PoseStamped staging_pose
+geometry_msgs/PoseStamped target_hint_pose
+uint8 locker_slot
+bool requires_precision_align
+float32 target_gap_m
+float32 max_linear_speed_mps
+builtin_interfaces/Duration timeout
+string prepared_route_id
+---
+bool success
+uint16 error_code
+string message
+geometry_msgs/PoseStamped final_base_pose
+geometry_msgs/PoseStamped detected_target_pose
+float32 measured_gap_m
+bool holding_brake
+string prepared_route_id
+---
+uint8 IDLE=0
+uint8 PLANNING=1
+uint8 APPROACH=2
+uint8 SEARCH=3
+uint8 ALIGN=4
+uint8 HOLD=5
+uint8 BACK=6
+
+uint8 phase
+float32 progress
+float32 remaining_distance_m
+float32 lateral_error_m
+float32 yaw_error_rad
+string detail

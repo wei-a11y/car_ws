@@ -33,8 +33,10 @@ amcl:
     sigma_hit: 0.2
     tf_broadcast: true
     transform_tolerance: 1.0
-    update_min_a: 0.1
-    update_min_d: 0.1
+    # Gazebo commissioning: update on every scan so a stationary startup still
+    # produces enough AMCL samples for localization-quality supervision.
+    update_min_a: 0.0
+    update_min_d: 0.0
     z_hit: 0.5
     z_max: 0.05
     z_rand: 0.5

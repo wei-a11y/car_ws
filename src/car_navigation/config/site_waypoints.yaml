@@ -4,6 +4,6 @@ site_waypoints:
   ros__parameters:
     frame_id: map
     calibrated: false
-    initial_pose: [0.0, 0.0, 0.0]
+    initial_pose: [-14.65, -4.375, 1.2272]
     test_goal_1: [0.0, 0.0, 0.0]
     test_goal_2: [0.0, 0.0, 0.0]

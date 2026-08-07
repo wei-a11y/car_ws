@@ -1,0 +1,22 @@
+# All poses are [x_m, y_m, yaw_rad] in map. The locker slot pose yaw is the
+# cabinet-face outward normal into the aisle, not a desired robot heading.
+# Set calibrated=true only after these values have been measured in RViz or
+# generated from the final Gazebo locker model.
+mission_sites:
+  calibrated: false
+  # Map-frame estimate corresponding to Gazebo world spawn (0, 0, 0).
+  # Locker poses remain uncalibrated, so mission execution stays disabled.
+  home_pose: [-14.65, -4.375, 1.2272]
+  lockers:
+    locker_1:
+      staging_pose: [0.0, 0.0, 0.0]
+      slots:
+        "1": [0.0, 0.0, 0.0]
+        "2": [0.0, 0.0, 0.0]
+        "3": [0.0, 0.0, 0.0]
+        "4": [0.0, 0.0, 0.0]
+        "5": [0.0, 0.0, 0.0]
+        "6": [0.0, 0.0, 0.0]
+        "7": [0.0, 0.0, 0.0]
+        "8": [0.0, 0.0, 0.0]
+        "9": [0.0, 0.0, 0.0]
