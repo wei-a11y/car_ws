@@ -16,7 +16,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     package_share = Path(get_package_share_directory("car_description"))
-    urdf_file = package_share / "urdf" / "urdf_1.urdf"
+    urdf_file = package_share / "urdf" / "car_urdf.urdf"
     robot_description = urdf_file.read_text(encoding="utf-8")
     robot_description = robot_description.replace(
         "$(find car_description)", str(package_share)

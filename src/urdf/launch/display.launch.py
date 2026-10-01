@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
@@ -7,8 +8,9 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     package_share = Path(get_package_share_directory("car_description"))
-    urdf_file = package_share / "urdf" / "urdf_1.urdf"
+    urdf_file = package_share / "urdf" / "car_urdf.urdf"
     robot_description = urdf_file.read_text(encoding="utf-8")
+    rviz_config = os.path.join(package_share, 'config', 'car.rviz')
 
     return LaunchDescription([
         Node(
@@ -37,5 +39,6 @@ def generate_launch_description():
             executable="rviz2",
             name="rviz2",
             output="screen",
+            arguments=["-d", rviz_config]
         ),
     ])
