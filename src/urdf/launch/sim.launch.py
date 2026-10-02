@@ -36,6 +36,7 @@ def generate_launch_description():
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(gazebo_launch)),
         launch_arguments={
+            "world": LaunchConfiguration("world"),
             "gui": gui,
             "server": "true",
             "verbose": "false",
@@ -47,7 +48,7 @@ def generate_launch_description():
     # share directory in GAZEBO_MODEL_PATH.
     gazebo_model_path = SetEnvironmentVariable(
         name="GAZEBO_MODEL_PATH",
-        value=str(package_share.parent),
+        value=f"{package_share.parent}:{package_share}",
     )
 
     robot_state_publisher = Node(
@@ -108,6 +109,20 @@ def generate_launch_description():
         parameters=[{"use_sim_time": True}],
     )
 
+    map_server = Node(
+        package="nav2_map_server", executable="map_server", name="map_server",
+        output="screen", parameters=[{
+            "use_sim_time": True,
+            "yaml_filename": LaunchConfiguration("map_yaml"),
+        }],
+    )
+    map_lifecycle = Node(
+        package="nav2_lifecycle_manager", executable="lifecycle_manager",
+        name="lifecycle_manager_map", output="screen", parameters=[{
+            "use_sim_time": True, "autostart": True, "node_names": ["map_server"],
+        }],
+    )
+
     load_diff_drive_after_joint_states = RegisterEventHandler(
         OnProcessExit(
             target_action=joint_state_broadcaster,
@@ -128,6 +143,12 @@ def generate_launch_description():
             default_value="true",
             description="Set to false to run Gazebo headless.",
         ),
+        DeclareLaunchArgument(
+            "world", default_value=str(package_share / "world_model" / "model.world"),
+        ),
+        DeclareLaunchArgument(
+            "map_yaml", default_value=str(package_share / "map" / "edited" / "edited.yaml"),
+        ),
         gazebo_model_path,
         gazebo,
         robot_state_publisher,
@@ -135,4 +156,6 @@ def generate_launch_description():
         load_controllers_after_spawn,
         load_diff_drive_after_joint_states,
         rviz,
+        map_server,
+        map_lifecycle,
     ])
