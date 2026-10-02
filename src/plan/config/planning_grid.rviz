@@ -28,6 +28,23 @@ Visualization Manager:
         Durability Policy: Transient Local
         History Policy: Keep Last
         Depth: 1
+    - Class: rviz_default_plugins/Path
+      Name: AStar Path
+      Enabled: true
+      Color: 25; 255; 50
+      Alpha: 1
+      Line Style: Lines
+      Line Width: 0.03
+      Topic:
+        Value: /plan
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/SetGoal
+      Topic: /goal_pose
   Views:
     Current:
       Class: rviz_default_plugins/TopDownOrtho

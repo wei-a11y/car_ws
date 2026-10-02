@@ -1,0 +1,13 @@
+planner:
+  ros__parameters:
+    use_sim_time: true
+    inflated_grid_topic: /plan/inflated_grid
+    goal_topic: /goal_pose
+    path_topic: /plan
+    status_topic: /plan/status
+    # Required: fill from the actual map frame; no map/localization is assumed.
+    planning_frame: ""
+    base_frame: base_footprint
+    tf_timeout_sec: 0.2
+    tf_max_age_sec: 0.5
+    max_cells: 4000000

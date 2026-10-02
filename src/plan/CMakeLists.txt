@@ -13,6 +13,7 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 
@@ -27,12 +28,20 @@ add_executable(planning_grid_node src/planning_grid_node.cpp)
 target_link_libraries(planning_grid_node planning_grid_core)
 ament_target_dependencies(planning_grid_node rclcpp rcl_interfaces nav_msgs)
 
-install(TARGETS planning_grid_core EXPORT planning_grid_coreTargets
+add_library(astar_core src/astar.cpp)
+target_link_libraries(astar_core PUBLIC planning_grid_core)
+add_executable(astar_node src/astar_node.cpp)
+target_link_libraries(astar_node astar_core)
+ament_target_dependencies(astar_node
+  rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs
+)
+
+install(TARGETS planning_grid_core astar_core EXPORT planning_grid_coreTargets
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
-install(TARGETS planning_grid_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS planning_grid_node astar_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 ament_export_targets(planning_grid_coreTargets HAS_LIBRARY_TARGET)
@@ -43,6 +52,18 @@ if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   ament_add_gtest(test_planning_grid test/test_planning_grid.cpp)
   target_link_libraries(test_planning_grid planning_grid_core)
+  ament_add_gtest(test_astar test/test_astar.cpp)
+  target_link_libraries(test_astar astar_core)
+  ament_add_pytest_test(test_astar_node test/test_astar_node.py
+    TIMEOUT 60
+    ENV
+      "ASTAR_EXECUTABLE=$<TARGET_FILE:astar_node>"
+      "ASTAR_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/config/astar.yaml"
+      "PLANNING_GRID_EXECUTABLE=$<TARGET_FILE:planning_grid_node>"
+      "PLANNING_GRID_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/config/planning_grid.yaml"
+      "ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/astar_ros_logs"
+      "ROS_LOCALHOST_ONLY=1"
+  )
   ament_add_pytest_test(test_planning_grid_node test/test_planning_grid_node.py
     TIMEOUT 40
     ENV

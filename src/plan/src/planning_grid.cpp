@@ -12,6 +12,21 @@ namespace plan
 {
 namespace
 {
+void validate_geometry(const GridGeometry & geometry, std::size_t count, std::size_t max_cells)
+{
+  if (max_cells == 0 || geometry.width == 0 || geometry.height == 0 ||
+    geometry.width > max_cells / geometry.height ||
+    count != geometry.width * geometry.height ||
+    !std::isfinite(geometry.resolution) || geometry.resolution <= 0.0 ||
+    !std::isfinite(geometry.origin_x) || !std::isfinite(geometry.origin_y) ||
+    !std::isfinite(geometry.origin_yaw) ||
+    !std::isfinite(geometry.resolution * static_cast<double>(geometry.width)) ||
+    !std::isfinite(geometry.resolution * static_cast<double>(geometry.height)))
+  {
+    throw std::invalid_argument("Invalid grid geometry, cell count or occupancy data size");
+  }
+}
+
 // Lower envelope of parabolas: exact squared Euclidean distance in O(n).
 std::vector<double> distance_transform(const std::vector<double> & input)
 {
@@ -71,17 +86,7 @@ PlanningGrid::PlanningGrid(
 : geometry_(geometry), raw_(std::move(occupancy))
 {
   validate_config(config);
-  if (geometry.width == 0 || geometry.height == 0 ||
-    geometry.width > config.max_cells / geometry.height ||
-    raw_.size() != geometry.width * geometry.height ||
-    !std::isfinite(geometry.resolution) || geometry.resolution <= 0.0 ||
-    !std::isfinite(geometry.origin_x) || !std::isfinite(geometry.origin_y) ||
-    !std::isfinite(geometry.origin_yaw) ||
-    !std::isfinite(geometry.resolution * static_cast<double>(geometry.width)) ||
-    !std::isfinite(geometry.resolution * static_cast<double>(geometry.height)))
-  {
-    throw std::invalid_argument("Invalid grid geometry, cell count or occupancy data size");
-  }
+  validate_geometry(geometry, raw_.size(), config.max_cells);
   obstacles_.resize(raw_.size());
   for (std::size_t i = 0; i < raw_.size(); ++i) {
     if (raw_[i] < -1 || raw_[i] > 100) {
@@ -131,6 +136,27 @@ PlanningGrid::PlanningGrid(
       inflated_[i] = blocked ? 100 : (raw_[i] == -1 ? -1 : 0);
     }
   }
+}
+
+PlanningGrid PlanningGrid::from_inflated_grid(
+  GridGeometry geometry, std::vector<std::int8_t> cells, std::size_t max_cells)
+{
+  return PlanningGrid(geometry, std::move(cells), max_cells);
+}
+
+PlanningGrid::PlanningGrid(
+  GridGeometry geometry, std::vector<std::int8_t> cells, std::size_t max_cells)
+: geometry_(geometry), raw_(std::move(cells))
+{
+  validate_geometry(geometry, raw_.size(), max_cells);
+  obstacles_.resize(raw_.size());
+  for (std::size_t i = 0; i < raw_.size(); ++i) {
+    if (raw_[i] != -1 && raw_[i] != 0 && raw_[i] != 100) {
+      throw std::invalid_argument("Inflated grid values must be -1, 0 or 100");
+    }
+    obstacles_[i] = raw_[i] == 100;
+  }
+  inflated_ = raw_;
 }
 
 std::size_t PlanningGrid::index(std::size_t x, std::size_t y) const

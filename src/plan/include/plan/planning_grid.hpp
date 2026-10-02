@@ -36,6 +36,9 @@ class PlanningGrid
 public:
   PlanningGrid(GridGeometry geometry, std::vector<std::int8_t> occupancy, GridConfig config);
   static void validate_config(const GridConfig & config);
+  // Import Phase 2 output unchanged: 100 blocked, 0 free, -1 allowed unknown.
+  static PlanningGrid from_inflated_grid(
+    GridGeometry geometry, std::vector<std::int8_t> cells, std::size_t max_cells);
 
   const GridGeometry & geometry() const {return geometry_;}
   const std::vector<std::int8_t> & raw_grid() const {return raw_;}
@@ -46,6 +49,7 @@ public:
   bool world_to_cell(double x, double y, std::size_t & cell_x, std::size_t & cell_y) const;
 
 private:
+  PlanningGrid(GridGeometry geometry, std::vector<std::int8_t> cells, std::size_t max_cells);
   std::size_t index(std::size_t x, std::size_t y) const;
   GridGeometry geometry_;
   std::vector<std::int8_t> raw_;
