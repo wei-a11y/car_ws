@@ -1,0 +1,80 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: map
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Map
+      Name: Map
+      Enabled: true
+      Alpha: 0.5
+      Topic:
+        Value: /map
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        Depth: 1
+    - Class: rviz_default_plugins/Map
+      Name: Inflated Grid
+      Enabled: true
+      Alpha: 0.5
+      Topic:
+        Value: /plan/inflated_grid
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        Depth: 1
+    - Class: rviz_default_plugins/RobotModel
+      Name: Robot
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        Depth: 1
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: Scan
+      Enabled: true
+      Size (m): 0.03
+      Topic:
+        Value: /scan
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Depth: 5
+    - Class: rviz_default_plugins/Path
+      Name: Raw Path
+      Enabled: true
+      Color: 255; 170; 25
+      Topic:
+        Value: /plan/raw_path
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        Depth: 1
+    - Class: rviz_default_plugins/Path
+      Name: Processed Path
+      Enabled: true
+      Color: 25; 255; 50
+      Topic:
+        Value: /plan
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        Depth: 1
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic: /initialpose
+      Covariance x: 0.25
+      Covariance y: 0.25
+      Covariance yaw: 0.06853891909122467
+    - Class: rviz_default_plugins/SetGoal
+      Topic: /goal_pose
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Scale: 30

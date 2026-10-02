@@ -1,0 +1,25 @@
+# Phase 8 deployment overrides only; algorithm defaults remain unchanged.
+gazebo:
+  ros__parameters:
+    # Gazebo's default 10 Hz /clock causes repeated 20 Hz LQR ticks at the same
+    # ROS time. Keep the ROS clock finer than the 0.05 s control period.
+    publish_rate: 100.0
+planning_grid:
+  ros__parameters:
+    use_sim_time: true
+    expected_frame: map
+    # Keep the confirmed 0.355 m robot radius in planning_grid.yaml.
+    # Larger initial budget for tracking, rasterization and localization error.
+    # This is NOT a measured AMCL accuracy or a collision-safety guarantee.
+    safety_margin: 0.10
+planner:
+  ros__parameters:
+    use_sim_time: true
+    planning_frame: map
+lqr_controller:
+  ros__parameters:
+    use_sim_time: true
+    planning_frame: map
+    # 0.05 m cells can offset the first cell centre by sqrt(2)*0.025 m.
+    # Stop above this bound; do not keep widening it to mask localization faults.
+    max_tracking_error: 0.04
