@@ -705,7 +705,7 @@ Safety Gate
 
 最后输出：
 - 修改文件；
-- 最终 interface table；
+- 最终 interface table； 
 - 数据流；
 - build 命令；
 - 验证命令。

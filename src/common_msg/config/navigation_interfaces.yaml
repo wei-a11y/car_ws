@@ -1,0 +1,41 @@
+# V1 interface contract; node wrappers will declare and consume these parameters.
+# This file does not start nodes or implement planning, control, or safety logic.
+/**:
+  ros__parameters:
+    use_sim_time: true
+
+task:
+  ros__parameters:
+    goal_topic: /goal_pose
+
+planner:
+  ros__parameters:
+    goal_topic: /goal_pose
+    map_topic: /map
+    path_topic: /plan
+    # Required deployment choice: no map frame/localization is confirmed yet.
+    planning_frame: ""
+    base_frame: base_footprint
+    odom_frame: odom
+    pose_source: tf
+    odom_topic: /odom
+    allow_odom_fallback: false
+
+lqr_controller:
+  ros__parameters:
+    path_topic: /plan
+    raw_cmd_topic: /cmd_vel_raw
+    planning_frame: ""
+    base_frame: base_footprint
+    odom_frame: odom
+    pose_source: tf
+    odom_topic: /odom
+    allow_odom_fallback: false
+
+safety_gate:
+  ros__parameters:
+    raw_cmd_topic: /cmd_vel_raw
+    cmd_vel_topic: /cmd_vel
+    scan_topic: /scan
+    base_frame: base_footprint
+    scan_frame: laser_link
