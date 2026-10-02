@@ -14,9 +14,44 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
+
+add_library(lqr_tracker_core src/lqr_tracker.cpp)
+target_compile_features(lqr_tracker_core PUBLIC cxx_std_17)
+target_include_directories(lqr_tracker_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+add_executable(lqr_tracker_node src/lqr_tracker_node.cpp)
+target_link_libraries(lqr_tracker_node lqr_tracker_core)
+ament_target_dependencies(lqr_tracker_node
+  rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs
+)
+install(TARGETS lqr_tracker_core EXPORT lqr_tracker_coreTargets
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+install(TARGETS lqr_tracker_node DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY include/ DESTINATION include)
+install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
+ament_export_targets(lqr_tracker_coreTargets HAS_LIBRARY_TARGET)
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_gtest(test_lqr_tracker test/test_lqr_tracker.cpp)
+  target_link_libraries(test_lqr_tracker lqr_tracker_core)
+  ament_add_pytest_test(test_lqr_tracker_node test/test_lqr_tracker_node.py
+    TIMEOUT 60
+    ENV
+      "TRACKER_EXECUTABLE=$<TARGET_FILE:lqr_tracker_node>"
+      "TRACKER_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/config/lqr_tracker.yaml"
+      "ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/ros_logs"
+      "ROS_LOCALHOST_ONLY=1"
+  )
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
   # comment the line when a copyright and license is added to all source files

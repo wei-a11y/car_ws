@@ -1,0 +1,42 @@
+lqr_controller:
+  ros__parameters:
+    use_sim_time: true
+    path_topic: /plan
+    raw_cmd_topic: /cmd_vel_raw
+    status_topic: /controller/lqr/status
+    debug_topic: /controller/lqr/debug
+    # Required: verified actual Path/map frame, not an assumed map/localization setup.
+    planning_frame: ""
+    base_frame: base_footprint
+    odom_frame: odom
+    pose_source: tf
+    odom_topic: /odom
+    allow_odom_fallback: false
+    # New low-speed starting values for tuning, not measured real-hardware capabilities.
+    control_period: 0.05
+    v_nominal: 0.15
+    v_max: 0.2  # <= existing base limit 0.5 m/s; tracker remains forward-only
+    w_max: 0.6  # <= existing base limit 1.0 rad/s
+    q_lateral: 100.0
+    q_heading: 25.0
+    r_angular: 4.0
+    riccati_tolerance: 1.0e-10
+    riccati_max_iterations: 5000
+    lookahead_distance: 0.25  # metres; preview never crosses a mandatory corner stop
+    nearest_forward_distance: 0.5
+    nearest_backward_distance: 0.05
+    slowdown_gain: 1.0  # 1/s: v_ref = min(v_nominal, gain * distance to next stop)
+    align_gain: 1.5
+    heading_tolerance: 0.05
+    align_trigger: 0.35
+    goal_position_tolerance: 0.03
+    stopped_linear_tolerance: 0.01
+    stopped_angular_tolerance: 0.02
+    # Conservative initial error budget; must be checked against inflation/localization uncertainty.
+    max_tracking_error: 0.03
+    max_path_points: 100000
+    tf_timeout_sec: 0.01
+    tf_max_age_sec: 0.5
+    odom_max_age_sec: 0.25
+    max_control_gap_sec: 0.2
+    wall_watchdog_timeout_sec: 0.5
