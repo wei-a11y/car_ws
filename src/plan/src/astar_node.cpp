@@ -1,13 +1,16 @@
 // Copyright 2026 car_ws contributors
 // SPDX-License-Identifier: Apache-2.0
 #include "plan/astar.hpp"
+#include "plan/path_processing.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
@@ -41,11 +44,24 @@ public:
       throw std::invalid_argument("Set verified planning_frame/base_frame and valid limits");
     }
     max_cells_ = static_cast<std::size_t>(limit);
+    const auto lookahead = read_parameter<std::int64_t>("post_processing.shortcut_max_lookahead");
+    const auto output_limit = read_parameter<std::int64_t>("post_processing.max_output_points");
+    if (lookahead <= 0 || output_limit <= 0) {
+      throw std::invalid_argument("Path processing limits must be positive");
+    }
+    processing_config_ = {
+      read_parameter<bool>("post_processing.enable_shortcut"),
+      read_parameter<double>("post_processing.resample_spacing"),
+      static_cast<std::size_t>(lookahead), static_cast<std::size_t>(output_limit)};
+    validate_path_processing_config(processing_config_);
     const auto map_topic = read_parameter<std::string>("inflated_grid_topic");
     const auto goal_topic = read_parameter<std::string>("goal_topic");
     const auto path_topic = read_parameter<std::string>("path_topic");
+    const auto raw_path_topic = read_parameter<std::string>("raw_path_topic");
     const auto status_topic = read_parameter<std::string>("status_topic");
-    if (map_topic.empty() || goal_topic.empty() || path_topic.empty() || status_topic.empty()) {
+    if (map_topic.empty() || goal_topic.empty() || path_topic.empty() ||
+      raw_path_topic.empty() || status_topic.empty())
+    {
       throw std::invalid_argument("Planner topic names must not be empty");
     }
     buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
@@ -53,6 +69,7 @@ public:
     const auto latched_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
     const auto volatile_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
     path_pub_ = create_publisher<nav_msgs::msg::Path>(path_topic, volatile_qos);
+    raw_path_pub_ = create_publisher<nav_msgs::msg::Path>(raw_path_topic, volatile_qos);
     status_pub_ = create_publisher<std_msgs::msg::String>(status_topic, latched_qos);
     map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
       map_topic, latched_qos,
@@ -63,17 +80,21 @@ public:
     const std::string resolved_map = map_sub_->get_topic_name();
     const std::string resolved_goal = goal_sub_->get_topic_name();
     const std::string resolved_path = path_pub_->get_topic_name();
+    const std::string resolved_raw_path = raw_path_pub_->get_topic_name();
     const std::string resolved_status = status_pub_->get_topic_name();
-    if (resolved_map == resolved_goal || resolved_path == resolved_status ||
-      resolved_map == resolved_path || resolved_map == resolved_status ||
-      resolved_goal == resolved_path || resolved_goal == resolved_status)
-    {
-      throw std::invalid_argument("Planner topics must be distinct after remapping");
+    const std::array<std::string, 5> topics = {
+      resolved_map, resolved_goal, resolved_path, resolved_raw_path, resolved_status};
+    for (std::size_t i = 0; i < topics.size(); ++i) {
+      for (std::size_t j = i + 1; j < topics.size(); ++j) {
+        if (topics[i] == topics[j]) {
+          throw std::invalid_argument("Planner topics must be distinct after remapping");
+        }
+      }
     }
     RCLCPP_INFO(
-      get_logger(), "A* ready: frame=%s, base=%s, inflated map=%s, goal=%s, path=%s",
+      get_logger(), "A* ready: frame=%s, base=%s, inflated map=%s, goal=%s, path=%s, raw=%s",
       planning_frame_.c_str(), base_frame_.c_str(), resolved_map.c_str(),
-      resolved_goal.c_str(), resolved_path.c_str());
+      resolved_goal.c_str(), resolved_path.c_str(), resolved_raw_path.c_str());
   }
 
 private:
@@ -104,6 +125,7 @@ private:
     empty.header.frame_id = planning_frame_;
     empty.header.stamp = now();
     path_pub_->publish(empty);
+    raw_path_pub_->publish(empty);
     path_valid_ = false;
   }
 
@@ -191,14 +213,17 @@ private:
         fail(result.status, "A* did not produce a valid path");
         return;
       }
-      nav_msgs::msg::Path path;
-      path.header.frame_id = planning_frame_;
-      path.header.stamp = now();
+      nav_msgs::msg::Path raw_path;
+      raw_path.header.frame_id = planning_frame_;
+      raw_path.header.stamp = now();
+      std::vector<Point2D> raw_points;
+      raw_points.reserve(result.cells.size());
       for (std::size_t i = 0; i < result.cells.size(); ++i) {
         const auto & cell = result.cells[i];
         const auto point = grid_->cell_to_world(cell.x, cell.y);
+        raw_points.push_back({point.first, point.second});
         geometry_msgs::msg::PoseStamped pose;
-        pose.header = path.header;
+        pose.header = raw_path.header;
         pose.pose.position.x = point.first;
         pose.pose.position.y = point.second;
         pose.pose.position.z = map_z_;
@@ -210,13 +235,29 @@ private:
         }
         pose.pose.orientation.z = std::sin(yaw / 2.0);
         pose.pose.orientation.w = std::cos(yaw / 2.0);
+        raw_path.poses.push_back(pose);
+      }
+      const auto processed = process_path(*grid_, raw_points, processing_config_);
+      nav_msgs::msg::Path path;
+      path.header = raw_path.header;
+      path.poses.reserve(processed.size());
+      for (const auto & point : processed) {
+        geometry_msgs::msg::PoseStamped pose;
+        pose.header = path.header;
+        pose.pose.position.x = point.x;
+        pose.pose.position.y = point.y;
+        pose.pose.position.z = map_z_;
+        pose.pose.orientation.z = std::sin(point.yaw / 2.0);
+        pose.pose.orientation.w = std::cos(point.yaw / 2.0);
         path.poses.push_back(pose);
       }
+      raw_path_pub_->publish(raw_path);
       path_pub_->publish(path);
       path_valid_ = true;
       publish_status(
         PlanStatus::SUCCESS, "Published " + std::to_string(path.poses.size()) +
-        " cell centres; cost=" + std::to_string(result.total_cost) + " m");
+        " processed points from " + std::to_string(raw_path.poses.size()) +
+        " raw cells; A* cost=" + std::to_string(result.total_cost) + " m");
     } catch (const tf2::TransformException & error) {
       fail(PlanStatus::TF_UNAVAILABLE, error.what());
     } catch (const std::exception & error) {
@@ -229,12 +270,14 @@ private:
   double tf_timeout_;
   double tf_max_age_;
   std::size_t max_cells_;
+  PathProcessingConfig processing_config_;
   double map_z_ = 0.0;
   bool path_valid_ = false;
   std::unique_ptr<PlanningGrid> grid_;
   std::unique_ptr<tf2_ros::Buffer> buffer_;
   std::unique_ptr<tf2_ros::TransformListener> listener_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr raw_path_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;

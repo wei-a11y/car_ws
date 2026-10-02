@@ -30,13 +30,15 @@ ament_target_dependencies(planning_grid_node rclcpp rcl_interfaces nav_msgs)
 
 add_library(astar_core src/astar.cpp)
 target_link_libraries(astar_core PUBLIC planning_grid_core)
+add_library(path_processing_core src/path_processing.cpp)
+target_link_libraries(path_processing_core PUBLIC planning_grid_core)
 add_executable(astar_node src/astar_node.cpp)
-target_link_libraries(astar_node astar_core)
+target_link_libraries(astar_node astar_core path_processing_core)
 ament_target_dependencies(astar_node
   rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs
 )
 
-install(TARGETS planning_grid_core astar_core EXPORT planning_grid_coreTargets
+install(TARGETS planning_grid_core astar_core path_processing_core EXPORT planning_grid_coreTargets
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
@@ -54,6 +56,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_planning_grid planning_grid_core)
   ament_add_gtest(test_astar test/test_astar.cpp)
   target_link_libraries(test_astar astar_core)
+  ament_add_gtest(test_path_processing test/test_path_processing.cpp)
+  target_link_libraries(test_path_processing path_processing_core astar_core)
   ament_add_pytest_test(test_astar_node test/test_astar_node.py
     TIMEOUT 60
     ENV

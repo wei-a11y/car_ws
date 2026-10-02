@@ -29,7 +29,7 @@ Visualization Manager:
         History Policy: Keep Last
         Depth: 1
     - Class: rviz_default_plugins/Path
-      Name: AStar Path
+      Name: Processed Path
       Enabled: true
       Color: 25; 255; 50
       Alpha: 1
@@ -37,6 +37,19 @@ Visualization Manager:
       Line Width: 0.03
       Topic:
         Value: /plan
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/Path
+      Name: Raw AStar Path
+      Enabled: true
+      Color: 255; 170; 25
+      Alpha: 0.8
+      Line Style: Lines
+      Line Width: 0.02
+      Topic:
+        Value: /plan/raw_path
         Reliability Policy: Reliable
         Durability Policy: Volatile
         History Policy: Keep Last

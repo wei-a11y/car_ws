@@ -1,5 +1,8 @@
 # Phase 3：最小 2D A*
 
+本文件记录 Phase 3 行为。当前代码已接入 [Phase 4 后处理](path_processing_phase4.md)：
+`/plan` 输出 processed path，原始 A* path 改由 `/plan/raw_path` 调试查看；当前验证以 Phase 4 文档为准。
+
 ## 接口与启动前置条件
 
 | 输入/输出 | 默认 topic / TF | 标准类型 |

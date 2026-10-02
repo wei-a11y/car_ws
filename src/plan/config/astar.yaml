@@ -4,6 +4,7 @@ planner:
     inflated_grid_topic: /plan/inflated_grid
     goal_topic: /goal_pose
     path_topic: /plan
+    raw_path_topic: /plan/raw_path
     status_topic: /plan/status
     # Required: fill from the actual map frame; no map/localization is assumed.
     planning_frame: ""
@@ -11,3 +12,8 @@ planner:
     tf_timeout_sec: 0.2
     tf_max_age_sec: 0.5
     max_cells: 4000000
+    post_processing:
+      enable_shortcut: true
+      resample_spacing: 0.1  # metres; bends/endpoints are additionally retained
+      shortcut_max_lookahead: 200  # simplified vertices; bounds greedy shortcut work
+      max_output_points: 100000

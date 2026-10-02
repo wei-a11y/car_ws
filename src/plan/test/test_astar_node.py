@@ -86,15 +86,17 @@ def transform(child, x, y):
 class Harness:
     def __init__(self, node):
         self.node = node
-        self.paths, self.statuses = [], []
+        self.paths, self.raw_paths, self.statuses = [], [], []
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.maps = node.create_publisher(OccupancyGrid, '/plan/inflated_grid', latched)
         self.goals = node.create_publisher(PoseStamped, '/goal_pose', 1)
         node.create_subscription(Path, '/plan', self.paths.append, 1)
+        node.create_subscription(Path, '/plan/raw_path', self.raw_paths.append, 1)
         node.create_subscription(String, '/plan/status', self.statuses.append, latched)
         spin_until(node, lambda: self.maps.get_subscription_count() > 0 and
-                   self.goals.get_subscription_count() > 0)
+                   self.goals.get_subscription_count() > 0 and
+                   node.count_publishers('/plan/raw_path') > 0)
 
     def send_map(self, msg):
         self.maps.publish(msg)
@@ -106,14 +108,22 @@ class Harness:
         goal.pose.position.x, goal.pose.position.y = x, y
         goal.pose.orientation.w = 1.0
         before_status, before_path = len(self.statuses), len(self.paths)
+        before_raw = len(self.raw_paths)
         self.goals.publish(goal)
         spin_until(self.node, lambda: len(self.statuses) > before_status and
-                   len(self.paths) > before_path)
+                   len(self.paths) > before_path and len(self.raw_paths) > before_raw)
         assert self.statuses[-1].data == expected
         path = self.paths[-1]
         assert path.header.frame_id == 'grid_debug'
         assert bool(path.poses) == (expected == 'SUCCESS')
         assert all(p.header == path.header for p in path.poses)
+        raw = self.raw_paths[-1]
+        assert raw.header == path.header
+        assert bool(raw.poses) == (expected == 'SUCCESS')
+        assert all(p.header == raw.header for p in raw.poses)
+        if path.poses:
+            assert path.poses[0].pose.position == raw.poses[0].pose.position
+            assert path.poses[-1].pose.position == raw.poses[-1].pose.position
         return path
 
 
@@ -185,6 +195,9 @@ def test_rotated_phase2_pipeline_and_goal_frame_transform(node):
             assert inflated[-1].data[y * 9 + x] != 100
             q = pose.pose.orientation
             assert q.z * q.z + q.w * q.w == pytest.approx(1.0)
+        for debug_path in (path, harness.raw_paths[-1]):
+            for a, b in zip(debug_path.poses, debug_path.poses[1:]):
+                assert segment_free(inflated[-1], a.pose.position, b.pose.position)
 
 
 def test_stale_tf_is_rejected_and_start_is_refreshed(node):
@@ -215,3 +228,93 @@ def test_explicit_planning_frame_is_required(node):
     result = subprocess.run(command('-p', 'planning_frame:='), capture_output=True, timeout=8.0)
     assert result.returncode != 0
     assert 'planning_frame' in (result.stdout + result.stderr).decode()
+
+
+def segment_free(grid, start, end):
+    q = grid.info.origin.orientation
+    yaw = 2.0 * math.atan2(q.z, q.w)
+
+    def local(point):
+        dx = point.x - grid.info.origin.position.x
+        dy = point.y - grid.info.origin.position.y
+        return ((math.cos(yaw) * dx + math.sin(yaw) * dy) / grid.info.resolution,
+                (-math.sin(yaw) * dx + math.cos(yaw) * dy) / grid.info.resolution)
+
+    a, b = local(start), local(end)
+    for index, occupancy in enumerate(grid.data):
+        if occupancy != 100:
+            continue
+        lower = (index % grid.info.width, index // grid.info.width)
+        enter, leave = 0.0, 1.0
+        for axis in (0, 1):
+            delta = b[axis] - a[axis]
+            if abs(delta) < 1e-12:
+                if not lower[axis] - 1e-10 <= a[axis] <= lower[axis] + 1.0 + 1e-10:
+                    break
+            else:
+                first = (lower[axis] - a[axis]) / delta
+                last = (lower[axis] + 1.0 - a[axis]) / delta
+                enter = max(enter, min(first, last))
+                leave = min(leave, max(first, last))
+                if enter > leave + 1e-10:
+                    break
+        else:
+            return False
+    return True
+
+
+@pytest.mark.parametrize('shortcut', [True, False])
+def test_raw_and_processed_spacing_yaw_and_map_update_clear(node, shortcut):
+    with running(command('-p', f'post_processing.enable_shortcut:={str(shortcut).lower()}',
+                         '-p', 'post_processing.resample_spacing:=0.5')):
+        harness = Harness(node)
+        msg = map_message()
+        msg.data[4 * 9 + 4] = 100
+        harness.send_map(msg)
+        broadcaster = StaticTransformBroadcaster(node)
+        broadcaster.sendTransform(transform('base_footprint', 1.5, 1.5))
+        settle(node)
+        path = harness.request('SUCCESS')
+        raw = harness.raw_paths[-1]
+        assert len(raw.poses) < len(path.poses)
+        for pose in raw.poses:
+            assert pose.pose.position.x % 1.0 == pytest.approx(0.5)
+            assert pose.pose.position.y % 1.0 == pytest.approx(0.5)
+        for a, b in zip(path.poses, path.poses[1:]):
+            dx = b.pose.position.x - a.pose.position.x
+            dy = b.pose.position.y - a.pose.position.y
+            assert 0.0 < math.hypot(dx, dy) <= 0.5 + 1e-10
+            yaw = math.atan2(dy, dx)
+            assert a.pose.orientation.z == pytest.approx(math.sin(yaw / 2.0))
+            assert a.pose.orientation.w == pytest.approx(math.cos(yaw / 2.0))
+            assert segment_free(msg, a.pose.position, b.pose.position)
+        assert path.poses[-1].pose.orientation == path.poses[-2].pose.orientation
+        before_path, before_raw = len(harness.paths), len(harness.raw_paths)
+        harness.send_map(msg)
+        spin_until(node, lambda: len(harness.paths) > before_path and
+                   len(harness.raw_paths) > before_raw)
+        assert not harness.paths[-1].poses
+        assert not harness.raw_paths[-1].poses
+        harness.request('SUCCESS')
+
+
+def test_processing_limit_failure_clears_both_outputs(node):
+    with running(command('-p', 'post_processing.max_output_points:=2')):
+        harness = Harness(node)
+        harness.send_map(map_message())
+        broadcaster = StaticTransformBroadcaster(node)
+        broadcaster.sendTransform(transform('base_footprint', 1.5, 1.5))
+        settle(node)
+        harness.request('NO_PATH')
+
+
+@pytest.mark.parametrize('override', [
+    'post_processing.resample_spacing:=0.0',
+    'post_processing.shortcut_max_lookahead:=0',
+    'post_processing.max_output_points:=0',
+    'raw_path_topic:=/plan',
+])
+def test_invalid_processing_config_or_aliased_output_rejected(node, override):
+    result = subprocess.run(command('-p', override), capture_output=True, timeout=8.0)
+    assert result.returncode != 0
+    assert 'Startup failed' in (result.stdout + result.stderr).decode()
