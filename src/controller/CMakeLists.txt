@@ -39,11 +39,40 @@ install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 ament_export_targets(lqr_tracker_coreTargets HAS_LIBRARY_TARGET)
 
+add_library(safety_gate_core src/safety_gate.cpp)
+target_compile_features(safety_gate_core PUBLIC cxx_std_17)
+target_include_directories(safety_gate_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+add_executable(safety_gate_node src/safety_gate_node.cpp)
+target_link_libraries(safety_gate_node safety_gate_core)
+ament_target_dependencies(safety_gate_node
+  rclcpp rcl_interfaces geometry_msgs sensor_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs
+)
+install(TARGETS safety_gate_core EXPORT safety_gate_coreTargets
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+install(TARGETS safety_gate_node DESTINATION lib/${PROJECT_NAME})
+ament_export_targets(safety_gate_coreTargets HAS_LIBRARY_TARGET)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_gtest(test_lqr_tracker test/test_lqr_tracker.cpp)
   target_link_libraries(test_lqr_tracker lqr_tracker_core)
+  ament_add_gtest(test_safety_gate test/test_safety_gate.cpp)
+  target_link_libraries(test_safety_gate safety_gate_core)
+  ament_add_pytest_test(test_safety_gate_node test/test_safety_gate_node.py
+    TIMEOUT 90
+    ENV
+      "GATE_EXECUTABLE=$<TARGET_FILE:safety_gate_node>"
+      "GATE_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/config/safety_gate.yaml"
+      "ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/ros_logs"
+      "ROS_LOCALHOST_ONLY=1"
+  )
   ament_add_pytest_test(test_lqr_tracker_node test/test_lqr_tracker_node.py
     TIMEOUT 60
     ENV
