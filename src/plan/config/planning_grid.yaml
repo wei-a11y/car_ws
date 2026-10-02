@@ -1,0 +1,16 @@
+planning_grid:
+  ros__parameters:
+    use_sim_time: true
+    map_topic: /map
+    raw_grid_topic: /plan/raw_grid
+    inflated_grid_topic: /plan/inflated_grid
+    # Empty accepts the actual input frame; never assumes a map frame or localization.
+    expected_frame: ""
+    occupied_threshold: 65
+    unknown_is_obstacle: true
+    # Confirmed from current URDF collision envelope; see tools/verify_robot_radius.py.
+    # Conservative radius 0.354360458 m rounded UP to the next millimetre.
+    robot_radius: 0.355
+    safety_margin: 0.05
+    inflate_map_boundary: true
+    max_cells: 4000000

@@ -1,0 +1,34 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    # Debug frame only. Set to the actual OccupancyGrid header.frame_id in RViz.
+    Fixed Frame: grid_debug
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Map
+      Name: Raw Grid
+      Enabled: true
+      Alpha: 0.5
+      Topic:
+        Value: /plan/raw_grid
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/Map
+      Name: Inflated Grid
+      Enabled: true
+      Alpha: 0.7
+      Topic:
+        Value: /plan/inflated_grid
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Scale: 60
