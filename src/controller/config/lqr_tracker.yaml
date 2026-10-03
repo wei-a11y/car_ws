@@ -5,6 +5,7 @@ lqr_controller:
     raw_cmd_topic: /cmd_vel_raw
     status_topic: /controller/lqr/status
     debug_topic: /controller/lqr/debug
+    diagnostic_log_period_sec: 1.0  # state/reason changes log immediately; repeats use wall time
     # Required: verified actual Path/map frame, not an assumed map/localization setup.
     planning_frame: ""
     base_frame: base_footprint

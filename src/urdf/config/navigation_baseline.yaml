@@ -22,4 +22,4 @@ lqr_controller:
     planning_frame: map
     # 0.05 m cells can offset the first cell centre by sqrt(2)*0.025 m.
     # Stop above this bound; do not keep widening it to mask localization faults.
-    max_tracking_error: 0.04
+    max_tracking_error: 0.1

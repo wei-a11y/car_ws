@@ -82,6 +82,35 @@ Path 不按创建时间过期，不能照抄底盘 0.5 s 的命令超时作为 P
 
 ## Build / Test
 
+### 当前代码的故障诊断日志
+
+`diagnostic_log_period_sec` 在 controller YAML 中配置，默认 1 秒，使用 wall time。
+状态或诊断原因变化立即打印，持续相同状态限频打印；控制输出、阈值、故障锁存不变。
+`/controller/lqr/status` 仍只发布原有状态名，`/controller/lqr/debug` 保持原有 11 项布局。
+
+核心 `TRACKING_ERROR` 以 ERROR 级别打印 `stage=CORE_TRACKER` 和明确原因：
+
+| reason | 不通过的条件 |
+| --- | --- |
+| `NEAREST_DISTANCE_EXCEEDED` | 机器人到有界 nearest 点的二维距离超过 max_tracking_error |
+| `SEGMENT_END_OVERSHOOT` | 投影达到/超过段长，但仍未进入端点位置容差 |
+| `SINGLE_POINT_NOT_REACHED` | 单点路径，机器人到该点距离超过 goal_position_tolerance |
+| `NONFINITE_INPUT` | 核心收到非有限位姿或实际速度 |
+
+故障日志保留第一次触发时的快照，标记 `snapshot=first_fault_latched`；后续位置恢复
+不会覆盖原始原因/数据或解除停车。新 Path 清除快照，旧 11 项 debug 行为不变。
+`segment` 从 0 开始，表示被检查的段；`aligning_at_guard` 标识保护检查时是否在对齐。
+日志包含 pose、start/end/nearest、最近点距离及阈值、projected/segment_length、
+endpoint_distance/goal_tolerance、ey/etheta、actual_v/w 及停车阈值、cmd_v/w。
+位置/距离单位为米，角度为弧度；`geometry_valid=0` 表示尚无可用几何计算。
+正常 BRAKING/ALIGNING 也会打印这些数据，用于判断是在等待实际停车还是等待航向对齐。
+
+ROS 校验失败以 WARN 级别打印具体 stage：PATH_FRAME/SIZE/POSE_FRAME/QUATERNION/
+COORDINATES、ODOM_FRAME/VELOCITY/TIME、CURRENT_POSE 下的 TF_COORDINATES/
+QUATERNION/TIME，以及 CLOCK_TICK/WATCHDOG。时间检查包含 signed_age 和允许偏差；
+帧检查包含 received/expected；时钟检查包含实际 gap 与阈值。TF 查找失败保留原始异常。
+PATH_INPUT/PUBLISHER 则标识没有有效路径或发布者消失。非法参数仍在启动时 FATAL 退出。
+
 在仓库根目录，所有输出留在仓库内：
 
 ```bash

@@ -52,6 +52,29 @@ std::array<double, 2> lqr_gain(const TrackerConfig & config);
 enum class TrackerState {WAIT_PATH, ALIGNING, TRACKING, BRAKING, GOAL_REACHED, TRACKING_ERROR};
 const char * state_name(TrackerState state);
 
+enum class TrackerFault
+{
+  NONE, NONFINITE_INPUT, SINGLE_POINT_NOT_REACHED,
+  NEAREST_DISTANCE_EXCEEDED, SEGMENT_END_OVERSHOOT
+};
+const char * fault_name(TrackerFault fault);
+
+// Diagnostic snapshot only; never used to relax or change control decisions.
+struct TrackerDiagnostics
+{
+  TrackerFault fault = TrackerFault::NONE;
+  std::size_t segment_index = 0;  // zero-based, segment evaluated by this step
+  std::size_t segment_count = 0;
+  bool aligning = false;
+  bool geometry_valid = false;
+  Pose2D pose{0.0, 0.0, 0.0};
+  Velocity2D actual{0.0, 0.0};
+  Point2D start{0.0, 0.0}, end{0.0, 0.0}, nearest{0.0, 0.0};
+  double length = 0.0, projected = 0.0;
+  double nearest_distance = 0.0, endpoint_distance = 0.0;
+  double lateral_error = 0.0, heading_error = 0.0;
+};
+
 struct TrackerResult
 {
   Velocity2D command{0.0, 0.0};
@@ -63,6 +86,7 @@ struct TrackerResult
   double reference_speed = 0.0;
   Point2D nearest{0.0, 0.0};
   Point2D lookahead{0.0, 0.0};
+  TrackerDiagnostics diagnostics;
 };
 
 // ROS-independent, forward-only tracker. Every real bend is a mandatory stop/align point.
@@ -89,6 +113,7 @@ private:
   bool aligning_ = true;
   bool fault_ = false;
   bool reached_ = false;
+  TrackerDiagnostics fault_diagnostics_;  // retain the FIRST fault until clear_path
 };
 }  // namespace controller
 #endif  // CONTROLLER__LQR_TRACKER_HPP_

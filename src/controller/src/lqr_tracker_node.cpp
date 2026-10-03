@@ -6,8 +6,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <iomanip>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -66,6 +68,7 @@ public:
     c.max_tracking_error = parameter<double>("max_tracking_error");
     c.max_path_points = count("max_path_points");
     max_path_points_ = c.max_path_points;
+    tracker_config_ = c;  // logging thresholds, not a second control configuration
     tracker_ = std::make_unique<LqrTracker>(c);
     period_ = c.control_period;
     tf_timeout_ = parameter<double>("tf_timeout_sec");
@@ -73,6 +76,13 @@ public:
     odom_max_age_ = parameter<double>("odom_max_age_sec");
     max_control_gap_ = parameter<double>("max_control_gap_sec");
     watchdog_timeout_ = parameter<double>("wall_watchdog_timeout_sec");
+    rcl_interfaces::msg::ParameterDescriptor log_descriptor;
+    log_descriptor.read_only = true;
+    diagnostic_period_ = declare_parameter<double>(
+      "diagnostic_log_period_sec", 1.0, log_descriptor);
+    if (!std::isfinite(diagnostic_period_) || diagnostic_period_ <= 0.0) {
+      throw std::invalid_argument("diagnostic_log_period_sec must be finite and positive");
+    }
     for (double value : {tf_max_age_, odom_max_age_, max_control_gap_, watchdog_timeout_}) {
       if (!std::isfinite(value) || value <= period_) {
         throw std::invalid_argument(
@@ -124,7 +134,12 @@ public:
         if (std::chrono::duration<double>(std::chrono::steady_clock::now() - last_tick_).count() >
         watchdog_timeout_)
         {
-          stop("CLOCK_UNAVAILABLE", "Control clock stalled; publishing zero from wall watchdog");
+          stop(
+            "CLOCK_UNAVAILABLE", "stage=CLOCK_WATCHDOG reason=CONTROL_TIMER_STALLED wall_gap=" +
+            std::to_string(
+              std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - last_tick_).count()) +
+            "s limit=" + std::to_string(watchdog_timeout_) + "s");
         }
       });
     const auto gain = tracker_->gain();
@@ -178,21 +193,62 @@ private:
     command_pub_->publish(message);
   }
 
-  void status(const std::string & code, const std::string & detail)
+  void status(
+    const std::string & code, const std::string & detail, const std::string & reason = "")
   {
     std_msgs::msg::String message;
     message.data = code;
     status_pub_->publish(message);
-    if (code != last_status_) {
-      RCLCPP_INFO(get_logger(), "%s: %s", code.c_str(), detail.c_str());
+    const auto wall_time = std::chrono::steady_clock::now();
+    if (code != last_status_ || reason != last_reason_ ||
+      std::chrono::duration<double>(wall_time - last_log_).count() >= diagnostic_period_)
+    {
+      if (code == "TRACKING_ERROR") {
+        RCLCPP_ERROR(get_logger(), "%s: %s", code.c_str(), detail.c_str());
+      } else if (code == "TF_UNAVAILABLE" || code == "ODOM_UNAVAILABLE" ||
+        code == "CLOCK_UNAVAILABLE" || code == "PATH_INVALID")
+      {
+        RCLCPP_WARN(get_logger(), "%s: %s", code.c_str(), detail.c_str());
+      } else {
+        RCLCPP_INFO(get_logger(), "%s: %s", code.c_str(), detail.c_str());
+      }
       last_status_ = code;
+      last_reason_ = reason;
+      last_log_ = wall_time;
     }
+  }
+
+  std::string tracker_detail(const TrackerResult & result) const
+  {
+    const auto & d = result.diagnostics;
+    const auto & c = tracker_config_;
+    std::ostringstream text;
+    text << std::fixed << std::setprecision(6)
+         << "stage=CORE_TRACKER reason=" << fault_name(d.fault)
+         << " snapshot=" << (d.fault == TrackerFault::NONE ? "current" : "first_fault_latched")
+         << " segment=" << d.segment_index << " segment_count=" << d.segment_count
+         << " (zero_based) aligning_at_guard=" << d.aligning
+         << " geometry_valid=" << d.geometry_valid
+         << " pose=(" << d.pose.x << "," << d.pose.y << "," << d.pose.yaw << ")"
+         << " start=(" << d.start.x << "," << d.start.y << ")"
+         << " end=(" << d.end.x << "," << d.end.y << ")"
+         << " nearest=(" << d.nearest.x << "," << d.nearest.y << ")"
+         << " nearest_distance=" << d.nearest_distance << " limit=" << c.max_tracking_error
+         << " projected=" << d.projected << " segment_length=" << d.length
+         << " endpoint_distance=" << d.endpoint_distance
+         << " goal_tolerance=" << c.goal_position_tolerance
+         << " ey=" << d.lateral_error << " etheta=" << d.heading_error
+         << " actual_v=" << d.actual.v << " stop_v_limit=" << c.stopped_linear_tolerance
+         << " actual_w=" << d.actual.w << " stop_w_limit=" << c.stopped_angular_tolerance
+         << " heading_tolerance=" << c.heading_tolerance
+         << " cmd_v=" << result.command.v << " cmd_w=" << result.command.w;
+    return text.str();
   }
 
   void stop(const std::string & code, const std::string & detail)
   {
     command({0.0, 0.0});
-    status(code, detail);
+    status(code, detail, detail.substr(0, detail.find(' ')));
   }
 
   void on_path(const nav_msgs::msg::Path & message)
@@ -201,17 +257,31 @@ private:
     path_error_ = "PATH_INVALID";
     command({0.0, 0.0});  // A replacement or rejection may never retain the previous command.
     try {
-      if (message.header.frame_id != frame_ || message.poses.size() > max_path_points_) {
-        throw std::invalid_argument("Path requires verified planning_frame and bounded point count");
+      if (message.header.frame_id != frame_) {
+        throw std::invalid_argument(
+                "stage=PATH_FRAME received=" + message.header.frame_id + " expected=" + frame_);
+      }
+      if (message.poses.size() > max_path_points_) {
+        throw std::invalid_argument(
+                "stage=PATH_SIZE count=" + std::to_string(message.poses.size()) +
+                " limit=" + std::to_string(max_path_points_));
       }
       std::vector<Point2D> points;
       points.reserve(message.poses.size());
       for (const auto & pose : message.poses) {
-        if (pose.header.frame_id != frame_ || !valid_quaternion(pose.pose.orientation) ||
-          !std::isfinite(pose.pose.position.x) || !std::isfinite(pose.pose.position.y) ||
+        const auto index = std::to_string(points.size());
+        if (pose.header.frame_id != frame_) {
+          throw std::invalid_argument(
+                  "stage=PATH_POSE_FRAME index=" + index + " received=" + pose.header.frame_id +
+                  " expected=" + frame_);
+        }
+        if (!valid_quaternion(pose.pose.orientation)) {
+          throw std::invalid_argument("stage=PATH_QUATERNION index=" + index + " invalid norm");
+        }
+        if (!std::isfinite(pose.pose.position.x) || !std::isfinite(pose.pose.position.y) ||
           !std::isfinite(pose.pose.position.z))
         {
-          throw std::invalid_argument("Path poses require matching frames and finite valid poses");
+          throw std::invalid_argument("stage=PATH_COORDINATES index=" + index + " nonfinite xyz");
         }
         points.push_back({pose.pose.position.x, pose.pose.position.y});
       }
@@ -222,18 +292,24 @@ private:
         "Received " + std::to_string(points.size()) +
         " points; progress reset, no Path age timeout");
     } catch (const std::exception & error) {
-      stop(path_error_, error.what());
+      stop(path_error_, "stage=PATH_ACCEPTANCE " + std::string(error.what()));
     }
   }
 
   void on_odom(const nav_msgs::msg::Odometry & message)
   {
     const auto & velocity = message.twist.twist;
-    if (message.header.frame_id != odom_frame_ || message.child_frame_id != base_ ||
-      !std::isfinite(velocity.linear.x) || !std::isfinite(velocity.linear.y) ||
+    if (message.header.frame_id != odom_frame_ || message.child_frame_id != base_) {
+      odom_error_ = "stage=ODOM_FRAME received=" + message.header.frame_id + "->" +
+        message.child_frame_id + " expected=" + odom_frame_ + "->" + base_;
+      odom_.reset();
+      return;
+    }
+    if (!std::isfinite(velocity.linear.x) || !std::isfinite(velocity.linear.y) ||
       !std::isfinite(velocity.linear.z) || !std::isfinite(velocity.angular.x) ||
       !std::isfinite(velocity.angular.y) || !std::isfinite(velocity.angular.z))
     {
+      odom_error_ = "stage=ODOM_VELOCITY reason=NONFINITE_TWIST";
       odom_.reset();
       return;
     }
@@ -249,51 +325,74 @@ private:
     return std::isfinite(age) && std::abs(age) <= limit;
   }
 
+  std::string age_detail(
+    const builtin_interfaces::msg::Time & stamp, double limit, const rclcpp::Time & time) const
+  {
+    if (stamp.sec < 0 || stamp.nanosec >= 1000000000U) {
+      return "invalid_stamp sec=" + std::to_string(stamp.sec) +
+             " nanosec=" + std::to_string(stamp.nanosec);
+    }
+    return "signed_age=" + std::to_string(
+      (time - rclcpp::Time(stamp, get_clock()->get_clock_type())).seconds()) +
+           "s abs_age_limit=" + std::to_string(limit) + "s";
+  }
+
   void on_tick()
   {
     last_tick_ = std::chrono::steady_clock::now();
     const auto time = now();
+    const double gap = last_ros_time_ ? (time - *last_ros_time_).seconds() : 0.0;
     if (time.nanoseconds() <= 0 || (last_ros_time_ &&
       ((time - *last_ros_time_).seconds() <= 0.0 ||
       (time - *last_ros_time_).seconds() > max_control_gap_)))
     {
       last_ros_time_ = time;
-      stop("CLOCK_UNAVAILABLE", "Invalid control clock or excessive control gap");
+      stop(
+        "CLOCK_UNAVAILABLE", "stage=CLOCK_TICK now=" + std::to_string(time.seconds()) +
+        " gap=" + std::to_string(gap) + "s max_gap=" + std::to_string(max_control_gap_) + "s");
       return;
     }
     last_ros_time_ = time;
     if (!tracker_->has_path()) {
-      stop(path_error_, "A valid nonempty Path is required");
+      stop(path_error_, "stage=PATH_INPUT reason=NO_VALID_NONEMPTY_PATH");
       return;
     }
     if (path_sub_->get_publisher_count() == 0) {
       tracker_->clear_path();
       path_error_ = "PATH_UNAVAILABLE";
-      stop(path_error_, "Path publisher disappeared; a new Path is required");
+      stop(path_error_, "stage=PATH_PUBLISHER reason=PUBLISHER_DISAPPEARED new Path required");
       return;
     }
     if (!odom_ || !fresh(odom_->header.stamp, odom_max_age_, time)) {
       stop(
         "ODOM_UNAVAILABLE",
-        "Velocity/stop confirmation requires fresh odom with verified frames");
+        odom_ ? "stage=ODOM_TIME " + age_detail(odom_->header.stamp, odom_max_age_, time) :
+        odom_error_);
       return;
     }
     try {
       const auto transform = buffer_->lookupTransform(
         frame_, base_, tf2::TimePointZero, tf2::durationFromSec(tf_timeout_));
       const auto & position = transform.transform.translation;
-      if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
-        !valid_quaternion(transform.transform.rotation) ||
-        ((transform.header.stamp.sec != 0 || transform.header.stamp.nanosec != 0) &&
-        !fresh(transform.header.stamp, tf_max_age_, time)))
+      if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
+        throw std::runtime_error("stage=TF_COORDINATES reason=NONFINITE_XYZ");
+      }
+      if (!valid_quaternion(transform.transform.rotation)) {
+        throw std::runtime_error("stage=TF_QUATERNION reason=INVALID_NORM");
+      }
+      if ((transform.header.stamp.sec != 0 || transform.header.stamp.nanosec != 0) &&
+        !fresh(transform.header.stamp, tf_max_age_, time))
       {
-        throw std::runtime_error("Robot TF is invalid, stale or in the future");
+        throw std::runtime_error(
+                "stage=TF_TIME " + age_detail(transform.header.stamp, tf_max_age_, time));
       }
       const auto result = tracker_->step(
         {position.x, position.y, tf2::getYaw(transform.transform.rotation)},
         {odom_->twist.twist.linear.x, odom_->twist.twist.angular.z});
       command(result.command);
-      status(state_name(result.state), "See debug values; every fault/reached state commands zero");
+      status(
+        state_name(result.state), tracker_detail(result),
+        fault_name(result.diagnostics.fault));
       std_msgs::msg::Float64MultiArray debug;
       debug.layout.dim.resize(1);
       debug.layout.dim[0].label =
@@ -309,11 +408,16 @@ private:
         result.lateral_error, result.heading_error, result.progress, result.remaining,
         result.command.v, result.command.w, result.lookahead.x, result.lookahead.y);
     } catch (const std::exception & error) {
-      stop("TF_UNAVAILABLE", error.what());
+      stop(
+        "TF_UNAVAILABLE", "stage=CURRENT_POSE target=" + frame_ + " source=" + base_ +
+        " tf_timeout=" + std::to_string(tf_timeout_) + "s " + error.what());
     }
   }
 
-  std::string frame_, base_, odom_frame_, last_status_, path_error_ = "WAIT_PATH";
+  std::string frame_, base_, odom_frame_, last_status_, last_reason_, path_error_ = "WAIT_PATH";
+  std::string odom_error_ = "stage=ODOM_INPUT reason=NO_MESSAGE";
+  TrackerConfig tracker_config_{};
+  double diagnostic_period_;
   double period_, tf_timeout_, tf_max_age_, odom_max_age_, max_control_gap_, watchdog_timeout_;
   std::size_t max_path_points_;
   std::unique_ptr<LqrTracker> tracker_;
@@ -322,6 +426,7 @@ private:
   std::optional<nav_msgs::msg::Odometry> odom_;
   std::optional<rclcpp::Time> last_ros_time_;
   std::chrono::steady_clock::time_point last_tick_;
+  std::chrono::steady_clock::time_point last_log_{};
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr command_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr debug_pub_;

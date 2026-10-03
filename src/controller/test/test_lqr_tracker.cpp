@@ -203,6 +203,71 @@ TEST(LqrTracker, SinglePointIsPositionOnlyAndNeverInventsAHeading)
   expect_zero(invalid);
 }
 
+TEST(LqrTracker, CornerFaultRetainsFirstGeometrySnapshotUntilNewPath)
+{
+  auto c = config(); c.max_tracking_error = 0.04; c.nearest_forward_distance = 10.0;
+  controller::LqrTracker tracker(c);
+  tracker.set_path({{0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}});
+  tracker.step({0.0, 0.0, 0.0}, {0.0, 0.0});
+  EXPECT_EQ(
+    tracker.step({1.0, 0.0, 0.0}, {0.0, 0.0}).state,
+    controller::TrackerState::ALIGNING);
+  const auto fault = tracker.step({1.045, 0.0, 0.3}, {0.0, 0.1});
+  EXPECT_EQ(fault.state, controller::TrackerState::TRACKING_ERROR);
+  expect_zero(fault);
+  const auto & d = fault.diagnostics;
+  EXPECT_EQ(d.fault, controller::TrackerFault::NEAREST_DISTANCE_EXCEEDED);
+  EXPECT_EQ(d.segment_index, 1U);
+  EXPECT_EQ(d.segment_count, 2U);
+  EXPECT_TRUE(d.aligning);
+  EXPECT_TRUE(d.geometry_valid);
+  EXPECT_NEAR(d.nearest_distance, 0.045, 1e-12);
+  EXPECT_DOUBLE_EQ(d.start.x, 1.0);
+  EXPECT_DOUBLE_EQ(d.end.y, 1.0);
+  EXPECT_DOUBLE_EQ(d.actual.w, 0.1);
+  const auto latched = tracker.step({1.0, 0.0, 1.57}, {0.0, 0.0});
+  expect_zero(latched);
+  EXPECT_DOUBLE_EQ(latched.diagnostics.pose.x, d.pose.x);
+  EXPECT_DOUBLE_EQ(latched.diagnostics.actual.w, d.actual.w);
+  const auto bad_input_after_fault = tracker.step({NAN, 0.0, 0.0}, {0.0, 0.0});
+  EXPECT_EQ(bad_input_after_fault.diagnostics.fault, d.fault);
+  tracker.set_path({{1.0, 0.0}, {1.0, 1.0}});
+  const auto recovered = tracker.step({1.0, 0.0, std::acos(-1.0) / 2.0}, {0.0, 0.0});
+  EXPECT_EQ(recovered.diagnostics.fault, controller::TrackerFault::NONE);
+  EXPECT_GT(recovered.command.v, 0.0);
+}
+
+TEST(LqrTracker, OvershootDiagnosticIsDistinctFromNearestDistanceGuard)
+{
+  auto c = config(); c.max_tracking_error = 0.2; c.nearest_forward_distance = 10.0;
+  controller::LqrTracker tracker(c);
+  tracker.set_path({{0.0, 0.0}, {1.0, 0.0}});
+  const auto result = tracker.step({1.04, 0.01, 0.0}, {0.0, 0.0});
+  expect_zero(result);
+  EXPECT_EQ(result.diagnostics.fault, controller::TrackerFault::SEGMENT_END_OVERSHOOT);
+  EXPECT_DOUBLE_EQ(result.diagnostics.projected, 1.04);
+  EXPECT_DOUBLE_EQ(result.diagnostics.length, 1.0);
+  EXPECT_GT(result.diagnostics.endpoint_distance, c.goal_position_tolerance);
+  EXPECT_LT(result.diagnostics.nearest_distance, c.max_tracking_error);
+}
+
+TEST(LqrTracker, SinglePointAndNonfiniteDiagnosticsIdentifyFailedGuard)
+{
+  controller::LqrTracker tracker(config());
+  tracker.set_path({{0.5, 0.0}});
+  const auto point = tracker.step({0.0, 0.0, 0.0}, {0.0, 0.0});
+  EXPECT_EQ(point.diagnostics.fault, controller::TrackerFault::SINGLE_POINT_NOT_REACHED);
+  EXPECT_DOUBLE_EQ(point.diagnostics.endpoint_distance, 0.5);
+  EXPECT_EQ(point.diagnostics.segment_count, 0U);
+  tracker.set_path({{0.0, 0.0}, {1.0, 0.0}});
+  const auto invalid = tracker.step({0.0, 0.0, NAN}, {0.0, 0.0});
+  EXPECT_EQ(invalid.diagnostics.fault, controller::TrackerFault::NONFINITE_INPUT);
+  EXPECT_FALSE(invalid.diagnostics.geometry_valid);
+  EXPECT_TRUE(std::isnan(invalid.diagnostics.pose.yaw));
+  expect_zero(invalid);
+  EXPECT_STREQ(controller::fault_name(invalid.diagnostics.fault), "NONFINITE_INPUT");
+}
+
 TEST(LqrTracker, TrackingCommandsRespectConfiguredLimits)
 {
   auto c = config(); c.w_max = 0.05; c.max_tracking_error = 0.2;

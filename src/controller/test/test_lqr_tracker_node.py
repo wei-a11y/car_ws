@@ -37,6 +37,7 @@ def running(arguments):
         except subprocess.TimeoutExpired:
             process.kill()
             output, _ = process.communicate()
+        process.output = output.decode()
         assert process.returncode == 0, output.decode()
 
 
@@ -174,7 +175,7 @@ def test_tracks_with_tf_pose_old_path_and_stops_reliably_at_goal(node):
 
 
 def test_empty_invalid_path_and_wrong_odom_frame_stop_old_command(node):
-    with running(command()):
+    with running(command()) as process:
         h = Harness(node)
         h.send_path()
         h.wait('TRACKING', nonzero=True)
@@ -188,10 +189,12 @@ def test_empty_invalid_path_and_wrong_odom_frame_stop_old_command(node):
         h.wait('TRACKING', nonzero=True)
         h.send_path(path_message(points=()))
         h.wait('PATH_UNAVAILABLE')
+    assert 'stage=PATH_FRAME received=wrong_frame expected=control_debug' in process.output
+    assert 'stage=ODOM_FRAME received=odom->wrong_base' in process.output
 
 
 def test_stale_missing_tf_odom_and_disappearing_path_publisher_stop(node):
-    with running(command('-p', 'tf_max_age_sec:=0.2', '-p', 'odom_max_age_sec:=0.15')):
+    with running(command('-p', 'tf_max_age_sec:=0.2', '-p', 'odom_max_age_sec:=0.15')) as process:
         h = Harness(node)
         h.emit_tf = False
         settle(node, 0.3)
@@ -209,6 +212,30 @@ def test_stale_missing_tf_odom_and_disappearing_path_publisher_stop(node):
         h.wait('TRACKING', nonzero=True)
         node.destroy_publisher(h.paths)
         h.wait('PATH_UNAVAILABLE')
+    assert 'stage=CURRENT_POSE target=control_debug source=base_footprint' in process.output
+    assert 'stage=ODOM_TIME signed_age=' in process.output
+    assert 'stage=PATH_PUBLISHER reason=PUBLISHER_DISAPPEARED' in process.output
+
+
+def test_fault_log_names_guard_keeps_snapshot_and_is_rate_limited(node):
+    with running(command('-p', 'diagnostic_log_period_sec:=0.2')) as process:
+        h = Harness(node)
+        h.send_path()
+        h.wait('TRACKING', nonzero=True)
+        h.pose[1] = 0.05
+        h.wait('TRACKING_ERROR')
+        h.pose[1] = 0.0  # A recovered pose must not overwrite the original fault.
+        settle(node, 0.7)
+        h.wait('TRACKING_ERROR')
+        assert len(h.debug[-1].data) == 11  # Existing interface is unchanged.
+    faults = [line for line in process.output.splitlines()
+              if 'TRACKING_ERROR: stage=CORE_TRACKER' in line]
+    assert 2 <= len(faults) <= 8
+    assert all('reason=NEAREST_DISTANCE_EXCEEDED' in line for line in faults)
+    assert all('snapshot=first_fault_latched' in line for line in faults)
+    assert all('nearest_distance=0.050000 limit=0.030000' in line for line in faults)
+    assert all('pose=(0.000000,0.050000,0.000000)' in line for line in faults)
+    assert all('segment=0 segment_count=1' in line for line in faults)
 
 
 def test_feedback_saturation_and_debug_layout(node):
@@ -240,6 +267,7 @@ def test_simulated_clock_pause_wall_watchdog_publishes_zero(node):
     ['-p', 'v_nominal:=0.0'],
     ['-p', 'q_lateral:=-1.0'],
     ['-p', 'riccati_max_iterations:=1'],
+    ['-p', 'diagnostic_log_period_sec:=0.0'],
     ['-p', 'allow_odom_fallback:=true'],
     ['-p', 'raw_cmd_topic:=/cmd_vel'],
     ['-r', '/cmd_vel_raw:=/diff_drive_controller/cmd_vel_unstamped'],

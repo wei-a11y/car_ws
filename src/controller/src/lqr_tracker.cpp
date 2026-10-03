@@ -133,10 +133,23 @@ const char * state_name(TrackerState state)
 LqrTracker::LqrTracker(TrackerConfig config)
 : config_(config), gain_(lqr_gain(config)) {}
 
+const char * fault_name(TrackerFault fault)
+{
+  switch (fault) {
+    case TrackerFault::NONE: return "NONE";
+    case TrackerFault::NONFINITE_INPUT: return "NONFINITE_INPUT";
+    case TrackerFault::SINGLE_POINT_NOT_REACHED: return "SINGLE_POINT_NOT_REACHED";
+    case TrackerFault::NEAREST_DISTANCE_EXCEEDED: return "NEAREST_DISTANCE_EXCEEDED";
+    case TrackerFault::SEGMENT_END_OVERSHOOT: return "SEGMENT_END_OVERSHOOT";
+  }
+  return "UNKNOWN";
+}
+
 void LqrTracker::clear_path()
 {
   points_.clear(); segments_.clear(); segment_ = 0; progress_ = 0.0;
   aligning_ = true; fault_ = false; reached_ = false;
+  fault_diagnostics_ = TrackerDiagnostics{};
 }
 
 void LqrTracker::set_path(const std::vector<Point2D> & path)
@@ -181,13 +194,29 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
   if (!has_path()) {
     return result;
   }
+  auto & diagnostic = result.diagnostics;
+  diagnostic.segment_index = segment_;
+  diagnostic.segment_count = segments_.size();
+  diagnostic.aligning = aligning_;
+  diagnostic.pose = pose;
+  diagnostic.actual = actual;
+  const auto latch_fault = [&](TrackerFault reason) {
+      fault_ = true;
+      diagnostic.fault = reason;
+      fault_diagnostics_ = diagnostic;
+      result.state = TrackerState::TRACKING_ERROR;
+      return result;
+    };
   if (!finite({pose.x, pose.y}) || !std::isfinite(pose.yaw) ||
     !std::isfinite(actual.v) || !std::isfinite(actual.w))
   {
-    fault_ = true;
+    if (!fault_) {
+      return latch_fault(TrackerFault::NONFINITE_INPUT);
+    }
   }
   if (fault_) {
     result.state = TrackerState::TRACKING_ERROR;
+    diagnostic = fault_diagnostics_;
     return result;
   }
   if (reached_) {
@@ -199,9 +228,12 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
   const Point2D position{pose.x, pose.y};
   if (segments_.empty()) {
     result.nearest = result.lookahead = points_.front();
+    diagnostic.start = diagnostic.end = diagnostic.nearest = points_.front();
+    diagnostic.nearest_distance = diagnostic.endpoint_distance =
+      distance(position, points_.front());
+    diagnostic.geometry_valid = true;
     if (distance(position, points_.front()) > config_.goal_position_tolerance) {
-      fault_ = true;
-      result.state = TrackerState::TRACKING_ERROR;
+      return latch_fault(TrackerFault::SINGLE_POINT_NOT_REACHED);
     } else {
       reached_ = stopped;
       result.state = stopped ? TrackerState::GOAL_REACHED : TrackerState::BRAKING;
@@ -223,10 +255,18 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
   result.remaining = segment.length - progress_;
   const double preview = std::min(segment.length, nearest_s + config_.lookahead_distance);
   result.lookahead = {segment.start.x + c * preview, segment.start.y + s * preview};
+  diagnostic.start = segment.start;
+  diagnostic.end = segment.end;
+  diagnostic.nearest = result.nearest;
+  diagnostic.length = segment.length;
+  diagnostic.projected = projected;
+  diagnostic.nearest_distance = distance(position, result.nearest);
+  diagnostic.endpoint_distance = distance(position, segment.end);
+  diagnostic.lateral_error = result.lateral_error;
+  diagnostic.heading_error = result.heading_error;
+  diagnostic.geometry_valid = true;
   if (distance(position, result.nearest) > config_.max_tracking_error) {
-    fault_ = true;
-    result.state = TrackerState::TRACKING_ERROR;
-    return result;
+    return latch_fault(TrackerFault::NEAREST_DISTANCE_EXCEEDED);
   }
   if (distance(position, segment.end) <= config_.goal_position_tolerance) {
     result.state = TrackerState::BRAKING;
@@ -242,9 +282,8 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
     return result;
   }
   if (projected >= segment.length) {
-    fault_ = true;  // An end projection is not proof of reaching the actual endpoint.
-    result.state = TrackerState::TRACKING_ERROR;
-    return result;
+    // An end projection is not proof of reaching the actual endpoint.
+    return latch_fault(TrackerFault::SEGMENT_END_OVERSHOOT);
   }
   if (std::abs(result.heading_error) > config_.align_trigger) {
     aligning_ = true;
