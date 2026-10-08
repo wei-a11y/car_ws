@@ -743,6 +743,524 @@
     <child link="B_caster_link"/>
   </joint>
 
+  <link
+    name="arm_base_link">
+    <inertial>
+      <origin
+        xyz="-0.0273807265561808 -7.06031227712301E-18 2.8796409701215E-16"
+        rpy="0 0 0" />
+      <mass
+        value="0.0597062822264354" />
+      <inertia
+        ixx="1.58211554015034E-05"
+        ixy="-4.5101626828947E-21"
+        ixz="1.29090502230351E-19"
+        iyy="2.07070076720511E-05"
+        iyz="-8.46499923663394E-22"
+        izz="2.81593325148159E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="arm_base_joint"
+    type="prismatic">
+    <origin
+      xyz="0.3465 0 -0.0225"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="arm_base_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.12"
+      upper="0.12"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="arm_1_link">
+    <inertial>
+      <origin
+        xyz="0.0261658927312355 0.000157728189073534 0.0136705869533062"
+        rpy="0 0 0" />
+      <mass
+        value="0.143863120805872" />
+      <inertia
+        ixx="0.00013929369315616"
+        ixy="4.02464196087577E-07"
+        ixz="-7.73862008597437E-06"
+        iyy="0.000138547444110567"
+        iyz="3.1020297304279E-07"
+        izz="4.4079915019592E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_1_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_1_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="arm_1_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="arm_base_link" />
+    <child
+      link="arm_1_link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="0"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="arm_2_link">
+    <inertial>
+      <origin
+        xyz="-0.00400650064635472 -1.69165145031709E-18 0.00288378507587928"
+        rpy="0 0 0" />
+      <mass
+        value="0.186614834092236" />
+      <inertia
+        ixx="7.73951502401784E-05"
+        ixy="1.5126376275167E-19"
+        ixz="2.62944863985317E-05"
+        iyy="0.000291518640198793"
+        iyz="-5.08569345998297E-21"
+        izz="0.000326117753261419" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="-0.065 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_2_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="-0.065 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_2_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="arm_2_joint"
+    type="revolute">
+    <origin
+      xyz="0.03 0 0.07"
+      rpy="0 0 0" />
+    <parent
+      link="arm_1_link" />
+    <child
+      link="arm_2_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="arm_3_link">
+    <inertial>
+      <origin
+        xyz="0.0141761371679842 1.1373922426556E-05 -1.38777878078145E-16"
+        rpy="0 0 0" />
+      <mass
+        value="0.16931961826588" />
+      <inertia
+        ixx="5.82981981570659E-05"
+        ixy="-1.23876709196777E-07"
+        ixz="2.40242144446608E-18"
+        iyy="0.000244229062877703"
+        iyz="2.60742504160622E-21"
+        izz="0.000285145425902925" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0.0485 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_3_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0.0485 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_3_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="arm_3_joint"
+    type="revolute">
+    <origin
+      xyz="-0.118 0 0.0305"
+      rpy="0 0 0" />
+    <parent
+      link="arm_2_link" />
+    <child
+      link="arm_3_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="arm_4_link">
+    <inertial>
+      <origin
+        xyz="0.006655402671362 7.06585280684803E-05 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.051853364801175" />
+      <inertia
+        ixx="1.53636862503278E-05"
+        ixy="9.0334496707639E-08"
+        ixz="-5.817841371112E-23"
+        iyy="1.42330562942881E-05"
+        iyz="-1.58043860889711E-21"
+        izz="2.43099898242421E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0.018 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_4_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0.018 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_4_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="arm_4_joint"
+    type="revolute">
+    <origin
+      xyz="0.127 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="arm_3_link" />
+    <child
+      link="arm_4_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="1.57"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="arm_5_link">
+    <inertial>
+      <origin
+        xyz="-0.000250895542522278 -3.36163946990364E-18 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.0303242029391938" />
+      <inertia
+        ixx="2.9332845009185E-05"
+        ixy="5.88723226197783E-21"
+        ixz="1.85691706877901E-21"
+        iyy="3.55507135544225E-06"
+        iyz="-5.28072857621439E-22"
+        izz="2.62584601054423E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_5_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_5_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="arm_5_joint"
+    type="revolute">
+    <origin
+      xyz="0.0555 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="arm_4_link" />
+    <child
+      link="arm_5_link" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="arm_camera_link">
+    <inertial>
+      <origin
+        xyz="-3.16561926480552E-05 -2.11411637106273E-19 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.000379351096233471" />
+      <inertia
+        ixx="6.4657733598161E-09"
+        ixy="1.03828148344728E-23"
+        ixz="2.17125679613169E-24"
+        iyy="3.51072402384379E-09"
+        iyz="-8.33621085320436E-16"
+        izz="3.51072617773481E-09" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_camera_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.498039215686275 0.498039215686275 0.498039215686275 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/arm_camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="arm_camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.0035 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="arm_5_link" />
+    <child
+      link="arm_camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="clamp_right_link">
+    <inertial>
+      <origin
+        xyz="0.025911281481931 0.000210763334473174 1.38777878078145E-17"
+        rpy="0 0 0" />
+      <mass
+        value="0.0138851667711793" />
+      <inertia
+        ixx="1.0629065871815E-06"
+        ixy="-7.57681127560206E-08"
+        ixz="-5.61234632939614E-22"
+        iyy="4.06335130850685E-06"
+        iyz="-2.92484797037949E-23"
+        izz="3.2264192079315E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/clamp_right_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/clamp_right_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="clamp_right_joint"
+    type="prismatic">
+    <origin
+      xyz="0.004 -0.01 0"
+      rpy="0 0 0" />
+    <parent
+      link="arm_5_link" />
+    <child
+      link="clamp_right_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0.025"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="clamp_left_link">
+    <inertial>
+      <origin
+        xyz="0.0259112814819308 -0.000210763334473188 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.0138851667711793" />
+      <inertia
+        ixx="1.06290658718151E-06"
+        ixy="7.57681127560208E-08"
+        ixz="-1.14464151644693E-21"
+        iyy="4.06335130850685E-06"
+        iyz="-9.44805095280538E-22"
+        izz="3.2264192079315E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/clamp_leftlink.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://car_description/meshes/arm/clamp_leftlink.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="clamp_left_joint"
+    type="prismatic">
+    <origin
+      xyz="0.004 0.01 0"
+      rpy="0 0 0" />
+    <parent
+      link="arm_5_link" />
+    <child
+      link="clamp_left_link" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="0"
+      upper="0.025"
+      effort="0"
+      velocity="0" />
+  </joint>
+
   <ros2_control name="GazeboSystem" type="system">
     <hardware>
       <plugin>gazebo_ros2_control/GazeboSystem</plugin>
