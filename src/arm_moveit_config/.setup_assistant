@@ -6,7 +6,7 @@ moveit_setup_assistant_config:
     relative_path: config/car_urdf.srdf
   package_settings:
     author_name: 666
-    author_email: 666
+    author_email: 666@163.com
     generated_timestamp: 1791531577
   control_xacro:
     command:
