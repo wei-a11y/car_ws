@@ -18,6 +18,7 @@
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "tf2/exceptions.h"
 #include "tf2/utils.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
@@ -70,6 +71,8 @@ public:
     const auto volatile_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
     path_pub_ = create_publisher<nav_msgs::msg::Path>(path_topic, volatile_qos);
     raw_path_pub_ = create_publisher<nav_msgs::msg::Path>(raw_path_topic, volatile_qos);
+    diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
+      declare_parameter<std::string>("diagnostics_topic", "/plan/diagnostics"), latched_qos);
     status_pub_ = create_publisher<std_msgs::msg::String>(status_topic, latched_qos);
     map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
       map_topic, latched_qos,
@@ -134,6 +137,21 @@ private:
     std_msgs::msg::String message;
     message.data = status_name(status);
     status_pub_->publish(message);
+    diagnostic_msgs::msg::DiagnosticArray diagnostics;
+    diagnostics.header.stamp = now();
+    diagnostic_msgs::msg::DiagnosticStatus entry;
+    entry.name = "planner";
+    entry.level = status == PlanStatus::SUCCESS ? entry.OK : entry.ERROR;
+    entry.message = message.data;
+    const auto add = [&](const std::string & key, const std::string & value) {
+        diagnostic_msgs::msg::KeyValue item;
+        item.key = key; item.value = value; entry.values.push_back(item);
+      };
+    add("detail", detail);
+    add("goal_stamp_ns", std::to_string(goal_stamp_ns_));
+    add("path_stamp_ns", std::to_string(path_stamp_ns_));
+    diagnostics.status.push_back(entry);
+    diagnostics_pub_->publish(diagnostics);
     RCLCPP_INFO(get_logger(), "%s: %s", message.data.c_str(), detail.c_str());
   }
 
@@ -175,6 +193,13 @@ private:
 
   void on_goal(const geometry_msgs::msg::PoseStamped & input)
   {
+    goal_stamp_ns_ = static_cast<std::int64_t>(input.header.stamp.sec) * 1000000000LL +
+      input.header.stamp.nanosec;
+    path_stamp_ns_ = 0;
+    if (input.header.stamp.sec < 0 || input.header.stamp.nanosec >= 1000000000U) {
+      fail(PlanStatus::INVALID_GOAL, "Invalid goal timestamp");
+      return;
+    }
     if (!grid_) {
       fail(PlanStatus::MAP_UNAVAILABLE, "No valid Phase 2 inflated map");
       return;
@@ -215,7 +240,10 @@ private:
       }
       nav_msgs::msg::Path raw_path;
       raw_path.header.frame_id = planning_frame_;
+      // Preserve the request stamp for task correlation and rejection after inhibition.
       raw_path.header.stamp = now();
+      if (goal_stamp_ns_ > 0) {raw_path.header.stamp = input.header.stamp;}
+      path_stamp_ns_ = rclcpp::Time(raw_path.header.stamp).nanoseconds();
       std::vector<Point2D> raw_points;
       raw_points.reserve(result.cells.size());
       for (std::size_t i = 0; i < result.cells.size(); ++i) {
@@ -251,6 +279,11 @@ private:
         pose.pose.orientation.w = std::cos(point.yaw / 2.0);
         path.poses.push_back(pose);
       }
+      if (!path.poses.empty()) {
+        const double final_yaw = tf2::getYaw(goal.pose.orientation);
+        path.poses.back().pose.orientation.z = std::sin(final_yaw / 2.0);
+        path.poses.back().pose.orientation.w = std::cos(final_yaw / 2.0);
+      }
       raw_path_pub_->publish(raw_path);
       path_pub_->publish(path);
       path_valid_ = true;
@@ -265,6 +298,8 @@ private:
     }
   }
 
+  std::int64_t goal_stamp_ns_ = 0, path_stamp_ns_ = 0;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
   std::string planning_frame_;
   std::string base_frame_;
   double tf_timeout_;

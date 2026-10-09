@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace controller
@@ -49,13 +50,14 @@ void validate_config(const TrackerConfig & config);
 DiscreteModel discrete_model(double speed, double period);
 std::array<double, 2> lqr_gain(const TrackerConfig & config);
 
-enum class TrackerState {WAIT_PATH, ALIGNING, TRACKING, BRAKING, GOAL_REACHED, TRACKING_ERROR};
+enum class TrackerState {WAIT_PATH, ALIGNING, TRACKING, BRAKING, FINAL_ALIGNING, GOAL_REACHED,
+  TRACKING_ERROR};
 const char * state_name(TrackerState state);
 
 enum class TrackerFault
 {
   NONE, NONFINITE_INPUT, SINGLE_POINT_NOT_REACHED,
-  NEAREST_DISTANCE_EXCEEDED, SEGMENT_END_OVERSHOOT
+  NEAREST_DISTANCE_EXCEEDED, SEGMENT_END_OVERSHOOT, TERMINAL_POSITION_DRIFT
 };
 const char * fault_name(TrackerFault fault);
 
@@ -96,7 +98,8 @@ class LqrTracker
 {
 public:
   explicit LqrTracker(TrackerConfig config);
-  void set_path(const std::vector<Point2D> & path);  // invalid input clears the old path, then throws
+  void set_path(
+    const std::vector<Point2D> & path, std::optional<double> final_yaw = std::nullopt);  // invalid input clears the old path, then throws
   void clear_path();
   bool has_path() const {return !points_.empty();}
   const std::array<double, 2> & gain() const {return gain_;}
@@ -113,6 +116,9 @@ private:
   bool aligning_ = true;
   bool fault_ = false;
   bool reached_ = false;
+  bool terminal_ = false;
+  bool terminal_braked_ = false;
+  std::optional<double> final_yaw_;
   TrackerDiagnostics fault_diagnostics_;  // retain the FIRST fault until clear_path
 };
 }  // namespace controller

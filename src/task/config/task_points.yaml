@@ -1,0 +1,8 @@
+# EXAMPLES ONLY: replace with poses verified on your map, then set configured: true.
+configured: false
+frame: map
+home: {name: home, x: 0.0, y: 0.0, yaw: 0.0}
+pickup: {name: pickup, x: 1.0, y: 0.0, yaw: 1.5707963267948966}
+dropoffs:
+  - {name: dropoff_1, x: 2.0, y: 1.0, yaw: 0.0}
+  - {name: dropoff_2, x: 3.0, y: 0.0, yaw: 3.141592653589793}

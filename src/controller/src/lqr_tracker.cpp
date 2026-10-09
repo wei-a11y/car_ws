@@ -124,6 +124,7 @@ const char * state_name(TrackerState state)
     case TrackerState::ALIGNING: return "ALIGNING";
     case TrackerState::TRACKING: return "TRACKING";
     case TrackerState::BRAKING: return "BRAKING";
+    case TrackerState::FINAL_ALIGNING: return "FINAL_ALIGNING";
     case TrackerState::GOAL_REACHED: return "GOAL_REACHED";
     case TrackerState::TRACKING_ERROR: return "TRACKING_ERROR";
   }
@@ -140,6 +141,7 @@ const char * fault_name(TrackerFault fault)
     case TrackerFault::NONFINITE_INPUT: return "NONFINITE_INPUT";
     case TrackerFault::SINGLE_POINT_NOT_REACHED: return "SINGLE_POINT_NOT_REACHED";
     case TrackerFault::NEAREST_DISTANCE_EXCEEDED: return "NEAREST_DISTANCE_EXCEEDED";
+    case TrackerFault::TERMINAL_POSITION_DRIFT: return "TERMINAL_POSITION_DRIFT";
     case TrackerFault::SEGMENT_END_OVERSHOOT: return "SEGMENT_END_OVERSHOOT";
   }
   return "UNKNOWN";
@@ -149,12 +151,18 @@ void LqrTracker::clear_path()
 {
   points_.clear(); segments_.clear(); segment_ = 0; progress_ = 0.0;
   aligning_ = true; fault_ = false; reached_ = false;
+  terminal_ = false; terminal_braked_ = false; final_yaw_.reset();
   fault_diagnostics_ = TrackerDiagnostics{};
 }
 
-void LqrTracker::set_path(const std::vector<Point2D> & path)
+void LqrTracker::set_path(
+  const std::vector<Point2D> & path, std::optional<double> final_yaw)
 {
   clear_path();
+  if (final_yaw && !std::isfinite(*final_yaw)) {
+    throw std::invalid_argument("Final yaw must be finite");
+  }
+  final_yaw_ = final_yaw;
   if (path.size() > config_.max_path_points) {
     throw std::invalid_argument("Path exceeds max_path_points");
   }
@@ -226,6 +234,32 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
   const bool stopped = std::abs(actual.v) <= config_.stopped_linear_tolerance &&
     std::abs(actual.w) <= config_.stopped_angular_tolerance;
   const Point2D position{pose.x, pose.y};
+  const auto finish = [&]() -> TrackerResult {
+      terminal_ = true;
+      diagnostic.end = diagnostic.nearest = points_.back();
+      diagnostic.endpoint_distance = distance(position, points_.back());
+      diagnostic.geometry_valid = true;
+      if (diagnostic.endpoint_distance > config_.goal_position_tolerance) {
+        return latch_fault(TrackerFault::TERMINAL_POSITION_DRIFT);
+      }
+      result.state = TrackerState::BRAKING;
+      if (!terminal_braked_) {
+        if (!stopped) {return result;}
+        terminal_braked_ = true;
+      }
+      const double error = final_yaw_ ? normalize_angle(pose.yaw - *final_yaw_) : 0.0;
+      result.heading_error = diagnostic.heading_error = error;
+      if (std::abs(actual.v) > config_.stopped_linear_tolerance) {return result;}
+      if (std::abs(error) > config_.heading_tolerance) {
+        result.state = TrackerState::FINAL_ALIGNING;
+        result.command.w = std::clamp(-config_.align_gain * error, -config_.w_max, config_.w_max);
+      } else if (stopped) {
+        reached_ = true;
+        result.state = TrackerState::GOAL_REACHED;
+      }
+      return result;
+    };
+  if (terminal_) {return finish();}
   if (segments_.empty()) {
     result.nearest = result.lookahead = points_.front();
     diagnostic.start = diagnostic.end = diagnostic.nearest = points_.front();
@@ -235,8 +269,7 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
     if (distance(position, points_.front()) > config_.goal_position_tolerance) {
       return latch_fault(TrackerFault::SINGLE_POINT_NOT_REACHED);
     } else {
-      reached_ = stopped;
-      result.state = stopped ? TrackerState::GOAL_REACHED : TrackerState::BRAKING;
+      return finish();
     }
     return result;
   }
@@ -269,15 +302,11 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
     return latch_fault(TrackerFault::NEAREST_DISTANCE_EXCEEDED);
   }
   if (distance(position, segment.end) <= config_.goal_position_tolerance) {
+    if (segment_ + 1 == segments_.size()) {return finish();}
     result.state = TrackerState::BRAKING;
     if (stopped) {
-      if (segment_ + 1 == segments_.size()) {
-        reached_ = true;
-        result.state = TrackerState::GOAL_REACHED;
-      } else {
-        ++segment_; progress_ = 0.0; aligning_ = true;
-        result.state = TrackerState::ALIGNING;
-      }
+      ++segment_; progress_ = 0.0; aligning_ = true;
+      result.state = TrackerState::ALIGNING;
     }
     return result;
   }

@@ -15,6 +15,9 @@
 #include <vector>
 
 #include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "std_srvs/srv/set_bool.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
@@ -104,6 +107,24 @@ public:
     command_pub_ = create_publisher<geometry_msgs::msg::Twist>(topic("raw_cmd_topic"), qos);
     status_pub_ = create_publisher<std_msgs::msg::String>(
       topic("status_topic"), rclcpp::QoS(1).reliable().transient_local());
+    diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
+      declare_parameter<std::string>("diagnostics_topic", "/controller/lqr/diagnostics"), qos);
+    reached_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(
+      declare_parameter<std::string>("reached_goal_topic", "/controller/lqr/reached_goal"), qos);
+    inhibit_service_ = create_service<std_srvs::srv::SetBool>(
+      declare_parameter<std::string>("inhibit_service", "/controller/lqr/set_inhibit"),
+      [this](const std_srvs::srv::SetBool::Request::SharedPtr request,
+      std_srvs::srv::SetBool::Response::SharedPtr response) {
+        inhibited_ = request->data;
+        tracker_->clear_path();
+        accepted_goal_.reset();
+        path_cutoff_ns_ = now().nanoseconds();
+        path_error_ = "WAIT_PATH";
+        stop(inhibited_ ? "INHIBITED" : "WAIT_PATH", "Explicit inhibit request; old path cleared");
+        response->success = true;
+        response->message = inhibited_ ? "Inhibited; all paths rejected" :
+        "Released; only a new path requested after release can run";
+      });
     debug_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(topic("debug_topic"), qos);
     path_sub_ = create_subscription<nav_msgs::msg::Path>(
       topic("path_topic"), qos,
@@ -199,6 +220,23 @@ private:
     std_msgs::msg::String message;
     message.data = code;
     status_pub_->publish(message);
+    diagnostic_msgs::msg::DiagnosticArray diagnostics;
+    diagnostics.header.stamp = now();
+    diagnostic_msgs::msg::DiagnosticStatus entry;
+    entry.name = "lqr_controller";
+    entry.message = code;
+    entry.level = (code == "TRACKING_ERROR" || code == "PATH_INVALID" ||
+      code.find("UNAVAILABLE") != std::string::npos) ? entry.ERROR : entry.OK;
+    const auto add = [&](const std::string & key, const std::string & value) {
+        diagnostic_msgs::msg::KeyValue item;
+        item.key = key; item.value = value; entry.values.push_back(item);
+      };
+    add("detail", detail);
+    add("reason", reason);
+    add("path_stamp_ns", std::to_string(path_stamp_ns_));
+    add("inhibited", inhibited_ ? "true" : "false");
+    diagnostics.status.push_back(entry);
+    diagnostics_pub_->publish(diagnostics);
     const auto wall_time = std::chrono::steady_clock::now();
     if (code != last_status_ || reason != last_reason_ ||
       std::chrono::duration<double>(wall_time - last_log_).count() >= diagnostic_period_)
@@ -253,6 +291,18 @@ private:
 
   void on_path(const nav_msgs::msg::Path & message)
   {
+    if (inhibited_) {
+      stop("INHIBITED", "Late/new path rejected while inhibited");
+      return;
+    }
+    const auto stamp_ns = static_cast<std::int64_t>(message.header.stamp.sec) * 1000000000LL +
+      message.header.stamp.nanosec;
+    if (path_cutoff_ns_ && stamp_ns <= path_cutoff_ns_) {
+      // Do not let an in-flight old request replace a new accepted path.
+      return;
+    }
+    path_stamp_ns_ = stamp_ns;
+    accepted_goal_.reset();
     tracker_->clear_path();
     path_error_ = "PATH_INVALID";
     command({0.0, 0.0});  // A replacement or rejection may never retain the previous command.
@@ -285,7 +335,13 @@ private:
         }
         points.push_back({pose.pose.position.x, pose.pose.position.y});
       }
-      tracker_->set_path(points);
+      tracker_->set_path(
+        points, message.poses.empty() ? std::nullopt :
+        std::optional<double>(tf2::getYaw(message.poses.back().pose.orientation)));
+      if (tracker_->has_path()) {
+        accepted_goal_ = message.poses.back();
+        accepted_goal_->header = message.header;
+      }
       path_error_ = "PATH_UNAVAILABLE";
       status(
         tracker_->has_path() ? "PATH_ACCEPTED" : "PATH_UNAVAILABLE",
@@ -353,6 +409,10 @@ private:
       return;
     }
     last_ros_time_ = time;
+    if (inhibited_) {
+      stop("INHIBITED", "Explicit motion inhibition");
+      return;
+    }
     if (!tracker_->has_path()) {
       stop(path_error_, "stage=PATH_INPUT reason=NO_VALID_NONEMPTY_PATH");
       return;
@@ -390,6 +450,9 @@ private:
         {position.x, position.y, tf2::getYaw(transform.transform.rotation)},
         {odom_->twist.twist.linear.x, odom_->twist.twist.angular.z});
       command(result.command);
+      if (result.state == TrackerState::GOAL_REACHED && accepted_goal_) {
+        reached_pub_->publish(*accepted_goal_);
+      }
       status(
         state_name(result.state), tracker_detail(result),
         fault_name(result.diagnostics.fault));
@@ -414,6 +477,12 @@ private:
     }
   }
 
+  bool inhibited_ = false;
+  std::int64_t path_stamp_ns_ = 0, path_cutoff_ns_ = 0;
+  std::optional<geometry_msgs::msg::PoseStamped> accepted_goal_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr reached_pub_;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr inhibit_service_;
   std::string frame_, base_, odom_frame_, last_status_, last_reason_, path_error_ = "WAIT_PATH";
   std::string odom_error_ = "stage=ODOM_INPUT reason=NO_MESSAGE";
   TrackerConfig tracker_config_{};

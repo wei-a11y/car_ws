@@ -276,3 +276,48 @@ def test_invalid_model_frames_or_base_output_rejected(node, override):
     result = subprocess.run(command(*override), capture_output=True, timeout=8.0)
     assert result.returncode != 0
     assert 'Startup failed' in (result.stdout + result.stderr).decode()
+
+
+def test_terminal_yaw_reached_feedback_and_inhibit_rejects_late_paths(node):
+    from std_srvs.srv import SetBool
+    reached = []
+    node.create_subscription(PoseStamped, '/controller/lqr/reached_goal', reached.append, 10)
+    inhibit = node.create_client(SetBool, '/controller/lqr/set_inhibit')
+    with running(command()):
+        h = Harness(node)
+        spin_until(node, inhibit.service_is_ready)
+        path = path_message()
+        path.header.stamp = node.get_clock().now().to_msg()
+        for pose in path.poses:
+            pose.header = path.header
+        path.poses[-1].pose.orientation.z = math.sin(0.5)
+        path.poses[-1].pose.orientation.w = math.cos(0.5)
+        h.send_path(path)
+        h.pose[0] = 0.5
+        settle(node)
+        h.pose[0] = 0.98
+        h.wait('FINAL_ALIGNING', nonzero=True)
+        assert not reached
+        h.pose[2] = 1.0
+        h.actual[1] = 0.1
+        h.wait('BRAKING')
+        assert not reached
+        h.actual[1] = 0.0
+        h.wait('GOAL_REACHED')
+        spin_until(node, lambda: bool(reached))
+        assert reached[-1].header == path.header
+        assert reached[-1].pose == path.poses[-1].pose
+        for value in (True, False):
+            future = inhibit.call_async(SetBool.Request(data=value))
+            spin_until(node, future.done)
+            assert future.result().success
+            h.wait('INHIBITED' if value else 'WAIT_PATH')
+            # An old request cannot restart motion, even after release.
+            h.send_path(path)
+            h.wait('INHIBITED' if value else 'WAIT_PATH')
+        new_path = path_message(points=((0.98, 0.0), (2.0, 0.0)))
+        new_path.header.stamp = node.get_clock().now().to_msg()
+        for pose in new_path.poses:
+            pose.header = new_path.header
+        h.send_path(new_path)
+        h.wait('ALIGNING', nonzero=True)

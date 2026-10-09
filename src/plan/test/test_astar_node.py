@@ -288,7 +288,8 @@ def test_raw_and_processed_spacing_yaw_and_map_update_clear(node, shortcut):
             assert a.pose.orientation.z == pytest.approx(math.sin(yaw / 2.0))
             assert a.pose.orientation.w == pytest.approx(math.cos(yaw / 2.0))
             assert segment_free(msg, a.pose.position, b.pose.position)
-        assert path.poses[-1].pose.orientation == path.poses[-2].pose.orientation
+        assert path.poses[-1].pose.orientation.z == pytest.approx(0.0)
+        assert path.poses[-1].pose.orientation.w == pytest.approx(1.0)
         before_path, before_raw = len(harness.paths), len(harness.raw_paths)
         harness.send_map(msg)
         spin_until(node, lambda: len(harness.paths) > before_path and
@@ -318,3 +319,30 @@ def test_invalid_processing_config_or_aliased_output_rejected(node, override):
     result = subprocess.run(command('-p', override), capture_output=True, timeout=8.0)
     assert result.returncode != 0
     assert 'Startup failed' in (result.stdout + result.stderr).decode()
+
+
+def test_goal_yaw_stamp_and_diagnostic_correlation(node):
+    from diagnostic_msgs.msg import DiagnosticArray
+    diagnostics = []
+    node.create_subscription(DiagnosticArray, '/plan/diagnostics', diagnostics.append, 10)
+    with running(command()):
+        harness = Harness(node)
+        harness.send_map(map_message())
+        broadcaster = StaticTransformBroadcaster(node)
+        broadcaster.sendTransform(transform('base_footprint', 1.5, 1.5))
+        settle(node)
+        for xy in (7.5, 1.5):  # Includes a single-cell path with requested final rotation.
+            goal = PoseStamped()
+            goal.header.frame_id = 'grid_debug'
+            goal.header.stamp = node.get_clock().now().to_msg()
+            goal.pose.position.x = goal.pose.position.y = xy
+            goal.pose.orientation.z, goal.pose.orientation.w = math.sin(0.6), math.cos(0.6)
+            before = len(harness.paths)
+            harness.goals.publish(goal)
+            spin_until(node, lambda: len(harness.paths) > before and bool(diagnostics) and
+                       any(v.key == 'goal_stamp_ns' and v.value == str(
+                           goal.header.stamp.sec * 1000000000 + goal.header.stamp.nanosec)
+                           for v in diagnostics[-1].status[0].values))
+            path = harness.paths[-1]
+            assert path.header.stamp == goal.header.stamp
+            assert path.poses[-1].pose.orientation == goal.pose.orientation

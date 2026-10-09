@@ -1,6 +1,7 @@
 planner:
   ros__parameters:
     use_sim_time: true
+    diagnostics_topic: /plan/diagnostics
     inflated_grid_topic: /plan/inflated_grid
     goal_topic: /goal_pose
     path_topic: /plan

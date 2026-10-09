@@ -10,6 +10,8 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -27,7 +29,7 @@ target_include_directories(lqr_tracker_core PUBLIC
 add_executable(lqr_tracker_node src/lqr_tracker_node.cpp)
 target_link_libraries(lqr_tracker_node lqr_tracker_core)
 ament_target_dependencies(lqr_tracker_node
-  rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs
+  rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs diagnostic_msgs std_srvs tf2 tf2_ros tf2_geometry_msgs
 )
 install(TARGETS lqr_tracker_core EXPORT lqr_tracker_coreTargets
   ARCHIVE DESTINATION lib
