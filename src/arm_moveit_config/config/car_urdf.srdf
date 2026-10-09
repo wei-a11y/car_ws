@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--This does not replace URDF, and is not an extension of URDF.
+    This is a format for representing semantic information about the robot structure.
+    A URDF file must exist for this robot as well, where the joints and the links that are referenced are defined
+-->
+<robot name="car_urdf">
+    <!--GROUPS: Representation of a set of joints and links. This can be useful for specifying DOF to plan for, defining arms, end effectors, etc-->
+    <!--LINKS: When a link is specified, the parent joint of that link (if it exists) is automatically included-->
+    <!--JOINTS: When a joint is specified, the child link of that joint (which will always exist) is automatically included-->
+    <!--CHAINS: When a chain is specified, all the links along the chain (including endpoints) are included in the group. Additionally, all the joints that are parents to included links are also included. This means that joints along the chain and the parent joint of the base link are included in the group-->
+    <!--SUBGROUPS: Groups can also be formed by referencing to already defined group names-->
+    <group name="arm">
+        <joint name="arm_base_joint"/>
+        <joint name="arm_1_joint"/>
+        <joint name="arm_2_joint"/>
+        <joint name="arm_3_joint"/>
+        <joint name="arm_4_joint"/>
+        <joint name="arm_5_joint"/>
+    </group>
+    <group name="gripper">
+        <joint name="clamp_left_joint"/>
+        <joint name="clamp_right_joint"/>
+    </group>
+    <!--GROUP STATES: Purpose: Define a named state for a particular group, in terms of joint values. This is useful to define states like 'folded arms'-->
+    <group_state name="arm_zero" group="arm">
+        <joint name="arm_1_joint" value="0"/>
+        <joint name="arm_2_joint" value="0"/>
+        <joint name="arm_3_joint" value="0"/>
+        <joint name="arm_4_joint" value="0"/>
+        <joint name="arm_5_joint" value="0"/>
+        <joint name="arm_base_joint" value="0"/>
+    </group_state>
+    <group_state name="gripper_zero" group="gripper">
+        <joint name="clamp_left_joint" value="0"/>
+        <joint name="clamp_right_joint" value="0"/>
+    </group_state>
+    <group_state name="gripper_open" group="gripper">
+        <joint name="clamp_left_joint" value="-0.025"/>
+        <joint name="clamp_right_joint" value="-0.025"/>
+    </group_state>
+    <group_state name="gripper_half" group="gripper">
+        <joint name="clamp_left_joint" value="-0.0125"/>
+        <joint name="clamp_right_joint" value="-0.0125"/>
+    </group_state>
+    <!--END EFFECTOR: Purpose: Represent information about an end effector.-->
+    <end_effector name="gripper" parent_link="arm_5_link" group="gripper" parent_group="arm"/>
+    <!--DISABLE COLLISIONS: By default it is assumed that any link of the robot could potentially come into collision with any other link in the robot. This tag disables collision checking between a specified pair of links. -->
+    <disable_collisions link1="B_caster_link" link2="F_caster_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="L_wheel_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="R_wheel_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="arm_1_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="arm_2_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="arm_3_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="arm_4_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="arm_5_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="arm_base_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="arm_camera_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="base_link" reason="Adjacent"/>
+    <disable_collisions link1="B_caster_link" link2="battery_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="clamp_left_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="clamp_right_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="front_shell_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="B_caster_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="L_wheel_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="R_wheel_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="arm_1_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="arm_2_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="arm_3_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="arm_4_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="arm_5_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="arm_base_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="arm_camera_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="base_link" reason="Adjacent"/>
+    <disable_collisions link1="F_caster_link" link2="battery_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="clamp_left_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="clamp_right_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="front_shell_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="F_caster_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="R_wheel_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="arm_1_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="arm_2_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="arm_3_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="arm_4_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="arm_5_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="arm_base_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="arm_camera_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="base_link" reason="Adjacent"/>
+    <disable_collisions link1="L_wheel_link" link2="battery_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="front_shell_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="L_wheel_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="arm_1_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="arm_2_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="arm_3_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="arm_4_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="arm_base_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="base_link" reason="Adjacent"/>
+    <disable_collisions link1="R_wheel_link" link2="battery_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="front_shell_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="R_wheel_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="arm_2_link" reason="Adjacent"/>
+    <disable_collisions link1="arm_1_link" link2="arm_base_link" reason="Adjacent"/>
+    <disable_collisions link1="arm_1_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="base_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="battery_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="front_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="arm_1_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="arm_3_link" reason="Adjacent"/>
+    <disable_collisions link1="arm_2_link" link2="arm_base_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="arm_camera_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="base_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="battery_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="front_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="arm_2_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_3_link" link2="arm_4_link" reason="Adjacent"/>
+    <disable_collisions link1="arm_3_link" link2="arm_5_link" reason="Never"/>
+    <disable_collisions link1="arm_3_link" link2="arm_camera_link" reason="Never"/>
+    <disable_collisions link1="arm_3_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_3_link" link2="clamp_left_link" reason="Never"/>
+    <disable_collisions link1="arm_3_link" link2="clamp_right_link" reason="Never"/>
+    <disable_collisions link1="arm_3_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="arm_4_link" link2="arm_5_link" reason="Adjacent"/>
+    <disable_collisions link1="arm_4_link" link2="arm_camera_link" reason="Never"/>
+    <disable_collisions link1="arm_4_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_4_link" link2="base_link" reason="Never"/>
+    <disable_collisions link1="arm_4_link" link2="clamp_left_link" reason="Never"/>
+    <disable_collisions link1="arm_4_link" link2="clamp_right_link" reason="Never"/>
+    <disable_collisions link1="arm_4_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="arm_5_link" link2="arm_camera_link" reason="Adjacent"/>
+    <disable_collisions link1="arm_5_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_5_link" link2="clamp_left_link" reason="Adjacent"/>
+    <disable_collisions link1="arm_5_link" link2="clamp_right_link" reason="Adjacent"/>
+    <disable_collisions link1="arm_5_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="base_link" reason="Adjacent"/>
+    <disable_collisions link1="arm_base_link" link2="battery_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="front_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="arm_base_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_camera_link" link2="back_shell_link" reason="Never"/>
+    <disable_collisions link1="arm_camera_link" link2="base_link" reason="Never"/>
+    <disable_collisions link1="arm_camera_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="arm_camera_link" link2="clamp_left_link" reason="Never"/>
+    <disable_collisions link1="arm_camera_link" link2="clamp_right_link" reason="Never"/>
+    <disable_collisions link1="arm_camera_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="base_link" reason="Adjacent"/>
+    <disable_collisions link1="back_shell_link" link2="battery_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="clamp_left_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="clamp_right_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="front_shell_link" reason="Default"/>
+    <disable_collisions link1="back_shell_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="back_shell_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="base_link" link2="battery_link" reason="Adjacent"/>
+    <disable_collisions link1="base_link" link2="camera_1_link" reason="Adjacent"/>
+    <disable_collisions link1="base_link" link2="camera_2_link" reason="Adjacent"/>
+    <disable_collisions link1="base_link" link2="front_shell_link" reason="Adjacent"/>
+    <disable_collisions link1="base_link" link2="imu_link" reason="Adjacent"/>
+    <disable_collisions link1="base_link" link2="laser_link" reason="Adjacent"/>
+    <disable_collisions link1="base_link" link2="middle_shell_link" reason="Adjacent"/>
+    <disable_collisions link1="base_link" link2="pole_link" reason="Adjacent"/>
+    <disable_collisions link1="base_link" link2="up_shell_link" reason="Adjacent"/>
+    <disable_collisions link1="battery_link" link2="camera_1_link" reason="Never"/>
+    <disable_collisions link1="battery_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="battery_link" link2="front_shell_link" reason="Never"/>
+    <disable_collisions link1="battery_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="battery_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="battery_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="battery_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="battery_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="camera_1_link" link2="camera_2_link" reason="Never"/>
+    <disable_collisions link1="camera_1_link" link2="front_shell_link" reason="Default"/>
+    <disable_collisions link1="camera_1_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="camera_1_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="camera_1_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="camera_1_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="camera_1_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="camera_2_link" link2="front_shell_link" reason="Never"/>
+    <disable_collisions link1="camera_2_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="camera_2_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="camera_2_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="camera_2_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="camera_2_link" link2="up_shell_link" reason="Default"/>
+    <disable_collisions link1="clamp_left_link" link2="clamp_right_link" reason="Never"/>
+    <disable_collisions link1="clamp_left_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="front_shell_link" link2="imu_link" reason="Never"/>
+    <disable_collisions link1="front_shell_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="front_shell_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="front_shell_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="front_shell_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="imu_link" link2="laser_link" reason="Never"/>
+    <disable_collisions link1="imu_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="imu_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="imu_link" link2="up_shell_link" reason="Default"/>
+    <disable_collisions link1="laser_link" link2="middle_shell_link" reason="Never"/>
+    <disable_collisions link1="laser_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="laser_link" link2="up_shell_link" reason="Default"/>
+    <disable_collisions link1="middle_shell_link" link2="pole_link" reason="Never"/>
+    <disable_collisions link1="middle_shell_link" link2="up_shell_link" reason="Never"/>
+    <disable_collisions link1="pole_link" link2="up_shell_link" reason="Never"/>
+</robot>

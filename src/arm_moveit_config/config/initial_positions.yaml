@@ -1,0 +1,11 @@
+# Default initial positions for car_urdf's ros2_control fake system
+
+initial_positions:
+  arm_1_joint: 0
+  arm_2_joint: 0
+  arm_3_joint: 0
+  arm_4_joint: 0
+  arm_5_joint: 0
+  arm_base_joint: 0
+  clamp_left_joint: 0
+  clamp_right_joint: 0
