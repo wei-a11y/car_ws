@@ -10,11 +10,22 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <build_depend>pybind11_vendor</build_depend>
+  <build_depend>pybind11-dev</build_depend>
+  <build_depend>python3-dev</build_depend>
+  <depend>plan</depend>
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
 
   <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>gazebo_msgs</exec_depend>
+  <exec_depend>gazebo_ros</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>car_description</exec_depend>
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>rcl_interfaces</exec_depend>
@@ -25,8 +36,6 @@
   <exec_depend>launch_ros</exec_depend>
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>rosgraph_msgs</test_depend>
-  <test_depend>sensor_msgs</test_depend>
-  <exec_depend>plan</exec_depend>
   <exec_depend>controller</exec_depend>
 
   <export>

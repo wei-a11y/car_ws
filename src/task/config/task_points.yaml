@@ -1,8 +1,8 @@
 # EXAMPLES ONLY: replace with poses verified on your map, then set configured: true.
-configured: false
+configured: true
 frame: map
-home: {name: home, x: 0.0, y: 0.0, yaw: 0.0}
-pickup: {name: pickup, x: 1.0, y: 0.0, yaw: 1.5707963267948966}
+home: {name: home, x: -10.9, y: -5.7, yaw: -1.9}
+pickup: {name: pickup, x: -11, y: -9, yaw: -2}
 dropoffs:
-  - {name: dropoff_1, x: 2.0, y: 1.0, yaw: 0.0}
-  - {name: dropoff_2, x: 3.0, y: 0.0, yaw: 3.141592653589793}
+  - {name: dropoff_1, x: -12.0, y: -13.8, yaw: 0.0}
+  - {name: dropoff_2, x: -18.3, y: -1.5, yaw: -1.9}

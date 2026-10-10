@@ -1,0 +1,57 @@
+# Registry for simulated recognition and strictly allowlisted Gazebo manipulation.
+# Coordinates are supplied explicitly to recovery_scenario; no map/world identity.
+# These masses and dimensions describe virtual test fixtures, not real objects.
+objects:
+  - object_id: bag
+    model_name: task_recovery_bag
+    label: bag
+    size: [0.24, 0.24, 0.44]
+    confidence: 0.99
+    mass_kg: 0.5
+    color: [0.15, 0.55, 0.85, 1.0]
+    grasp_failures: 0
+  - object_id: stool
+    model_name: task_recovery_stool
+    label: stool
+    size: [0.40, 0.40, 0.55]
+    confidence: 0.99
+    mass_kg: 3.0
+    color: [0.7, 0.25, 0.12, 1.0]
+    grasp_failures: 0
+  - object_id: temporary
+    model_name: task_recovery_temporary
+    label: box
+    size: [0.28, 0.28, 0.44]
+    confidence: 0.99
+    mass_kg: 1.0
+    color: [0.8, 0.65, 0.15, 1.0]
+    grasp_failures: 0
+  - object_id: hidden_stool
+    model_name: task_recovery_hidden_stool
+    label: stool
+    size: [0.20, 0.20, 0.55]
+    confidence: 0.99
+    mass_kg: 3.0
+    color: [0.85, 0.2, 0.2, 1.0]
+    grasp_failures: 0
+  - object_id: grasp_failure
+    model_name: task_recovery_grasp_failure
+    label: bag
+    size: [0.24, 0.24, 0.44]
+    confidence: 0.99
+    mass_kg: 0.5
+    color: [0.5, 0.2, 0.75, 1.0]
+    # The first two virtual closures fail to attach. Third can succeed.
+    grasp_failures: 2
+scenarios:
+  bag:
+    - {object_id: bag, forward: 0.0, lateral: 0.0}
+  stool:
+    - {object_id: stool, forward: 0.0, lateral: 0.0}
+  temporary:
+    - {object_id: temporary, forward: 0.0, lateral: 0.0}
+  occluded:
+    - {object_id: bag, forward: 0.0, lateral: 0.0}
+    - {object_id: hidden_stool, forward: 0.70, lateral: 0.0}
+  grasp_failure:
+    - {object_id: grasp_failure, forward: 0.0, lateral: 0.0}

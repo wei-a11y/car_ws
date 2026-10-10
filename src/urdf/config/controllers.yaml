@@ -1,3 +1,17 @@
+arm_controller:
+  ros__parameters:
+    joints:
+      - arm_1_joint
+      - arm_2_joint
+      - arm_3_joint
+      - arm_4_joint
+      - arm_5_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
 controller_manager:
   ros__parameters:
     update_rate: 100
@@ -8,6 +22,9 @@ controller_manager:
 
     diff_drive_controller:
       type: diff_drive_controller/DiffDriveController
+
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
 
 diff_drive_controller:
   ros__parameters:

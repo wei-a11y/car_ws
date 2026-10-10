@@ -1,0 +1,87 @@
+# Simulated perception and virtual manipulation only. These values are NOT
+# measured physical arm limits, validated clearances, or measured work/energy.
+planning:
+  occupied_threshold: 65
+  unknown_is_obstacle: true
+  robot_radius: 0.355
+  # Match navigation_baseline.yaml deployment, not the package's 0.05 default.
+  safety_margin: 0.10
+  inflate_map_boundary: true
+  max_cells: 4000000
+  enable_shortcut: true
+  resample_spacing: 0.1
+  shortcut_max_lookahead: 200
+  max_output_points: 100000
+geometry:
+  arm_reach: 1.3
+  action_distance: 0.85
+  lift_height: 0.35
+  carry_height: 1.2
+  pass_distance: 0.85
+  temporary_offsets: [0.75, -0.75]
+  # Account for stopped-base uncertainty when evaluating the virtual arm reach.
+  base_position_tolerance: 0.03
+  action_angles: [0.0, -0.4, 0.4]
+  grasp_clearance: 0.08
+  manipulation_step: 0.08
+cost:
+  time_weight: 1.0
+  work_weight: 1.0
+  time_reference: 60.0
+  work_reference: 100.0
+  linear_speed: 0.2
+  angular_speed: 0.4
+  grasp_seconds: 8.0
+  place_seconds: 5.0
+  rolling_force: 8.0
+  carry_force_per_kg: 1.0
+  gravity: 9.81
+perception:
+  min_confidence: 0.8
+  max_observation_age_sec: 1.0
+classes:
+  bag: {movable: true, carry: true, mass: 0.5}
+  stool: {movable: false, carry: false, mass: 3.0}
+  box: {movable: true, carry: false, mass: 1.0}
+navigation:
+  working_map_topic: /task/working_map
+  execution_path_topic: /plan
+  scan_topic: /scan
+  static_map_topic: /map
+  marker_topic: /task/recovery/markers
+  scan_timeout_sec: 0.5
+  scan_wall_timeout_sec: 0.6
+  # Gazebo +Inf means no return inside range_max. Beyond range_max stays unknown.
+  # NaN, -Inf and finite out-of-range values remain unknown.
+  allow_positive_infinity: true
+  corridor_spacing: 0.1
+  stop_margin: 0.3
+  observation_chunk_length: 1.0
+  min_advance: 0.1
+  map_settle_sec: 0.1
+  inspection_timeout_sec: 3.0
+  operation_timeout_sec: 30.0
+  max_grasp_attempts: 3
+  max_recovery_cycles: 8
+  anonymous_obstacle_size: 0.15
+backend:
+  reference_entity: car::base_link
+  reference_frame: base_link
+  planning_frame: map
+  get_state_service: /task/gazebo/get_entity_state
+  set_state_service: /task/gazebo/set_entity_state
+  backend_poll_sec: 0.1
+  backend_timeout_sec: 2.0
+  observation_timeout_sec: 0.6
+  action_step_sec: 0.2
+  lift_height: 0.35
+  lift_speed: 0.15
+  lift_min_displacement: 0.15
+  follow_tolerance: 0.06
+  verification_samples: 3
+  restore_position_tolerance: 0.04
+  restore_yaw_tolerance: 0.08
+  carry_x: 0.0
+  carry_y: 0.0
+  carry_z: 1.2
+  arm_reach: 1.3

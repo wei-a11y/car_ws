@@ -785,7 +785,7 @@
   </link>
   <joint
     name="arm_base_joint"
-    type="prismatic">
+    type="fixed">
     <origin
       xyz="0.3465 0 -0.0225"
       rpy="0 0 0" />
@@ -793,13 +793,6 @@
       link="base_link" />
     <child
       link="arm_base_link" />
-    <axis
-      xyz="0 1 0" />
-    <limit
-      lower="-0.12"
-      upper="0.12"
-      effort="0"
-      velocity="0" />
   </joint>
   <link
     name="arm_1_link">
@@ -858,6 +851,8 @@
       upper="1.55"
       effort="0"
       velocity="0" />
+    <!-- Initial viscous damping (N*m*s/rad); tune in simulation. -->
+    <dynamics damping="0.01" />
   </joint>
   <link
     name="arm_2_link">
@@ -916,6 +911,8 @@
       upper="3.14"
       effort="0"
       velocity="0" />
+    <!-- Initial viscous damping (N*m*s/rad); tune in simulation. -->
+    <dynamics damping="0.01" />
   </joint>
   <link
     name="arm_3_link">
@@ -974,6 +971,8 @@
       upper="0.04"
       effort="0"
       velocity="0" />
+    <!-- Initial viscous damping (N*m*s/rad); tune in simulation. -->
+    <dynamics damping="0.01" />
   </joint>
   <link
     name="arm_4_link">
@@ -1032,6 +1031,8 @@
       upper="1.8"
       effort="0"
       velocity="0" />
+    <!-- Initial viscous damping (N*m*s/rad); tune in simulation. -->
+    <dynamics damping="0.01" />
   </joint>
   <link
     name="arm_5_link">
@@ -1090,6 +1091,8 @@
       upper="3.14"
       effort="0"
       velocity="0" />
+    <!-- Initial viscous damping (N*m*s/rad); tune in simulation. -->
+    <dynamics damping="0.01" />
   </joint>
   <link
     name="arm_camera_link">
@@ -1201,6 +1204,8 @@
       upper="0"
       effort="0"
       velocity="0" />
+    <!-- Initial viscous damping (N*s/m); tune in simulation. -->
+    <dynamics damping="0.1" />
   </joint>
   <link
     name="clamp_left_link">
@@ -1259,6 +1264,8 @@
       upper="0"
       effort="0"
       velocity="0" />
+    <!-- Initial viscous damping (N*s/m); tune in simulation. -->
+    <dynamics damping="0.1" />
   </joint>
 
   <ros2_control name="GazeboSystem" type="system">
@@ -1274,6 +1281,48 @@
 
     <joint name="R_wheel_joint">
       <command_interface name="velocity" />
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+
+    <joint name="arm_1_joint">
+      <command_interface name="position" />
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+
+    <joint name="arm_2_joint">
+      <command_interface name="position" />
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+
+    <joint name="arm_3_joint">
+      <command_interface name="position" />
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+
+    <joint name="arm_4_joint">
+      <command_interface name="position" />
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+
+    <joint name="arm_5_joint">
+      <command_interface name="position" />
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+
+    <joint name="clamp_left_joint">
+      <command_interface name="position" />
+      <state_interface name="position" />
+      <state_interface name="velocity" />
+    </joint>
+
+    <joint name="clamp_right_joint">
+      <command_interface name="position" />
       <state_interface name="position" />
       <state_interface name="velocity" />
     </joint>
