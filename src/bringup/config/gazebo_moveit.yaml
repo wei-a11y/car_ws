@@ -1,0 +1,4 @@
+# Keep simulation time updates at the controller update rate.
+gazebo:
+  ros__parameters:
+    publish_rate: 100.0

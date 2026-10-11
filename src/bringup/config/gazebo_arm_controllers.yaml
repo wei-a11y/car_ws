@@ -1,0 +1,26 @@
+controller_manager:
+  ros__parameters:
+    arm_base_controller:
+      type: position_controllers/JointGroupPositionController
+
+arm_base_controller:
+  ros__parameters:
+    use_sim_time: true
+    joints:
+      - arm_base_joint
+
+# Gazebo initializes its position command from gazebo_arm.yaml. With velocity
+# state but no velocity command, Humble JTC discards that command on activation
+# and holds the fallen actual pose instead. Position feedback remains closed-loop;
+# the hardware and joint_state_broadcaster still publish actual velocity.
+arm_controller:
+  ros__parameters:
+    state_interfaces: [position]
+    set_last_command_interface_value_as_state_on_activation: true
+    open_loop_control: false
+
+gripper_controller:
+  ros__parameters:
+    state_interfaces: [position]
+    set_last_command_interface_value_as_state_on_activation: true
+    open_loop_control: false

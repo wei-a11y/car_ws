@@ -1,0 +1,92 @@
+# Simulation-only servo tuning, NOT measured actuator specifications.
+# Effort: N for prismatic joints, Nm for revolute joints.
+# Velocity/acceleration: m/s, m/s^2 or rad/s, rad/s^2.
+# Passive damping: N*s/m or Nm*s/rad, integrated implicitly by ODE.
+# Start at 10% of the PID derivative gain; verify tracking after changes.
+# kp/kd start near critical damping: kd ~= 2*sqrt(kp*effective_mass_or_inertia).
+# Conservative no-load gravity bounds with a horizontal base: arm2 <= ~0.56 Nm,
+# arm3 <= ~0.22 Nm, arm4 <= ~0.055 Nm, arm5 <= ~0.020 Nm;
+# each finger <= ~0.14 N. Tilt and payload change these estimates.
+# integral_limit bounds the integral FORCE/TORQUE term, not an angle error.
+# Pitch-joint integral gains compensate gravity; initial pitch joints avoid limits.
+joint_settings:
+  arm_base_joint:
+    initial_position: 0.0
+    velocity: 0.15
+    acceleration: 0.15
+    effort: 30.0
+    kp: 400.0
+    ki: 20.0
+    kd: 35.0
+    damping: 3.5
+    integral_limit: 1.0
+  arm_1_joint:
+    initial_position: 0.0
+    velocity: 0.5
+    acceleration: 0.8
+    effort: 3.0
+    kp: 10.0
+    ki: 2.0
+    kd: 0.4
+    damping: 0.04
+    integral_limit: 0.5
+  arm_2_joint:
+    initial_position: 0.3
+    velocity: 0.5
+    acceleration: 0.8
+    effort: 3.0
+    kp: 30.0
+    ki: 12.0
+    kd: 0.65
+    damping: 0.065
+    integral_limit: 0.8
+  arm_3_joint:
+    initial_position: -0.6
+    velocity: 0.5
+    acceleration: 0.8
+    effort: 3.0
+    kp: 30.0
+    ki: 12.0
+    kd: 0.7
+    damping: 0.07
+    integral_limit: 0.5
+  arm_4_joint:
+    initial_position: 0.3
+    velocity: 0.5
+    acceleration: 0.8
+    effort: 1.0
+    kp: 8.0
+    ki: 4.0
+    kd: 0.11
+    damping: 0.011
+    integral_limit: 0.2
+  arm_5_joint:
+    initial_position: 0.0
+    velocity: 0.5
+    acceleration: 0.8
+    effort: 0.5
+    kp: 1.5
+    ki: 0.75
+    kd: 0.016
+    damping: 0.0016
+    integral_limit: 0.1
+  clamp_left_joint:
+    initial_position: -0.015
+    velocity: 0.05
+    acceleration: 0.1
+    effort: 3.0
+    kp: 150.0
+    ki: 20.0
+    kd: 3.0
+    damping: 0.3
+    integral_limit: 1.0
+  clamp_right_joint:
+    initial_position: -0.015
+    velocity: 0.05
+    acceleration: 0.1
+    effort: 3.0
+    kp: 150.0
+    ki: 20.0
+    kd: 3.0
+    damping: 0.3
+    integral_limit: 1.0

@@ -14,6 +14,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     share = Path(get_package_share_directory('car_description'))
+    bringup = Path(get_package_share_directory('bringup'))
     plan = Path(get_package_share_directory('plan'))
     controller = Path(get_package_share_directory('controller'))
     config = LaunchConfiguration('navigation_params_file')
@@ -32,7 +33,7 @@ def generate_launch_description():
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel',
                              description='Override with a debug topic for isolated testing'),
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(str(share / 'launch/sim.launch.py')),
+            PythonLaunchDescriptionSource(str(bringup / 'launch/sim.launch.py')),
             condition=IfCondition(LaunchConfiguration('start_sim')),
             launch_arguments={
                 'world': LaunchConfiguration('world'),

@@ -6,7 +6,9 @@
 `nav2_amcl` 定位，不启动 Nav2 planner/controller/BT/costmap。没有修改算法核心、
 URDF、世界/地图资产、Task，也没有添加深度相机。
 
-新入口是 `ros2 launch car_description navigation.launch.py`。它包含已有仿真/地图
+闭环入口是 `ros2 launch bringup navigation.launch.py`，源码位于
+`src/bringup/launch/navigation.launch.py`。仿真和显示入口也由 `bringup` 安装；
+URDF、网格及现有参数仍由 `car_description` 提供。它包含已有仿真/地图
 入口，再启动 AMCL、独立定位 lifecycle manager 和四个算法/安全节点。
 `start_sim:=false` 只启动定位/导航，要求已有同 domain 的仿真和 map server，不能
 同时启动两套地图、定位或控制节点。Gazebo 环境与地图默认使用已集成资产：
@@ -58,7 +60,7 @@ URDF/RSP -> base_footprint -> base_link -> laser_link
 source /opt/ros/humble/setup.bash
 colcon --log-base log/phase8_navigation build --base-paths src \
   --build-base build/phase8_navigation --install-base install/phase8_navigation \
-  --packages-select car_description plan controller
+  --packages-select car_description arm_moveit_config plan controller bringup
 source install/phase8_navigation/local_setup.bash
 mkdir -p log/phase8_navigation/ros
 export ROS_LOG_DIR="$PWD/log/phase8_navigation/ros"
@@ -66,11 +68,11 @@ colcon --log-base log/phase8_navigation test \
   --build-base build/phase8_navigation --install-base install/phase8_navigation \
   --packages-select plan controller
 colcon test-result --test-result-base build/phase8_navigation --verbose
-python3 -m pytest -q src/urdf/test/test_navigation.py \
+python3 -m pytest -q src/bringup/test/test_navigation.py \
   --basetemp=log/phase8_navigation/pytest -o cache_dir=log/phase8_navigation/pytest_cache \
   --junitxml=log/phase8_navigation/integration.xml
-ament_flake8 src/urdf/launch src/urdf/test tools/phase8_metrics.py
-xmllint --noout src/urdf/package.xml
+ament_flake8 src/bringup/launch src/bringup/test tools/phase8_metrics.py
+xmllint --noout src/urdf/package.xml src/bringup/package.xml
 git diff --check
 ```
 
@@ -86,19 +88,20 @@ INVALID_GOAL/NO_PATH 清除路径、障碍停止/释放、Scan/TF/时钟失效�
 所有终端 source 同一环境并设置相同 ROS domain，不运行旧的仿真/导航进程。
 
 ```bash
-ros2 launch car_description navigation.launch.py
+ros2 launch bringup navigation.launch.py
 ```
 
 如需覆盖资产或不显示 GUI：
 
 ```bash
-ros2 launch car_description navigation.launch.py \
+ros2 launch bringup navigation.launch.py \
   world:="$PWD/world_model/model.world" map_yaml:="$PWD/map/edited/edited.yaml"
-ros2 launch car_description navigation.launch.py gui:=false rviz:=false
+ros2 launch bringup navigation.launch.py gui:=false rviz:=false
 ```
 
 以上命令是不同启动方式，**不要同时执行**。`sim.launch.py` 仍可单独用于遥控，
-默认 RViz 配置不变；闭环入口传入新的 `config/navigation.rviz`，Fixed Frame 为 map。
+默认 RViz 配置不变；可用 `ros2 launch bringup sim.launch.py` 单独启动仿真。
+闭环入口传入 `car_description` 的 `config/navigation.rviz`，Fixed Frame 为 map。
 
 启动后依次：
 

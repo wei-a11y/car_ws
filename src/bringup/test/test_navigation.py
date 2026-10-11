@@ -23,6 +23,7 @@ import yaml
 
 
 SHARE = FilePath(__file__).resolve().parents[1]
+DESCRIPTION_SHARE = SHARE.parent / 'urdf'
 DEBUG_COMMAND = '/phase8_test/cmd_vel'
 
 
@@ -31,8 +32,9 @@ def zero(command):
 
 
 def test_deployment_contract():
-    amcl = yaml.safe_load((SHARE / 'config/amcl.yaml').read_text())['amcl']['ros__parameters']
-    config = yaml.safe_load((SHARE / 'config/navigation_baseline.yaml').read_text())
+    amcl = yaml.safe_load(
+        (DESCRIPTION_SHARE / 'config/amcl.yaml').read_text())['amcl']['ros__parameters']
+    config = yaml.safe_load((DESCRIPTION_SHARE / 'config/navigation_baseline.yaml').read_text())
     assert config['gazebo']['ros__parameters']['publish_rate'] > 20
     assert (amcl['global_frame_id'], amcl['odom_frame_id'], amcl['base_frame_id']) == (
         'map', 'odom', 'base_footprint')
@@ -46,7 +48,7 @@ def test_deployment_contract():
     assert math.sqrt(2) * 0.025 < controller['max_tracking_error']
     assert controller['max_tracking_error'] < config['planning_grid'][
         'ros__parameters']['safety_margin']
-    rviz = yaml.safe_load((SHARE / 'config/navigation.rviz').read_text())
+    rviz = yaml.safe_load((DESCRIPTION_SHARE / 'config/navigation.rviz').read_text())
     assert rviz['Visualization Manager']['Global Options']['Fixed Frame'] == 'map'
 
 

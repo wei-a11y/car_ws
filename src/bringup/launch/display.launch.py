@@ -21,7 +21,7 @@ def generate_launch_description():
             parameters=[
                 {
                     "robot_description": robot_description,
-                    "use_sim_time": True,
+                    "use_sim_time": False,
                 }
             ],
         ),

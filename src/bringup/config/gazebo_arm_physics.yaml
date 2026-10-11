@@ -1,0 +1,9 @@
+# Simulation-only ODE tuning for the articulated Gazebo arm.
+# The world solver held and executed the arm/finger targets in isolated tests;
+# quick produced severe drift with the current small link masses and inertias.
+solver_type: world
+# Small constraint softness reduced startup LCP warnings in the same scenario.
+cfm: 0.000001
+# Retain the existing world's 1 ms physics step and 1000 Hz update rate.
+max_step_size: 0.001
+real_time_update_rate: 1000.0
