@@ -236,7 +236,7 @@ def navigation(tmp_path, request):
     log = (tmp_path / 'launch.log').open('w+')
     process = subprocess.Popen(
         ['ros2', 'launch', str(SHARE / 'launch/navigation.launch.py'),
-         'start_sim:=false', f'cmd_vel_topic:={DEBUG_COMMAND}',
+         'start_sim:=false', 'rviz:=false', f'cmd_vel_topic:={DEBUG_COMMAND}',
          f'enable:={str(getattr(request, "param", True)).lower()}'],
         stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     try:

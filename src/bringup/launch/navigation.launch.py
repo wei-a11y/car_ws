@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -22,7 +22,8 @@ def generate_launch_description():
         DeclareLaunchArgument('start_sim', default_value='true',
                              description='false reuses an already running sim/map server'),
         DeclareLaunchArgument('gui', default_value='true'),
-        DeclareLaunchArgument('rviz', default_value='true'),
+        DeclareLaunchArgument('rviz', default_value='true',
+                             description='Open the map-frame navigation RViz'),
         DeclareLaunchArgument('world', default_value=str(share / 'world_model/model.world')),
         DeclareLaunchArgument('map_yaml', default_value=str(share / 'map/edited/edited.yaml')),
         DeclareLaunchArgument('amcl_params_file', default_value=str(share / 'config/amcl.yaml')),
@@ -32,17 +33,20 @@ def generate_launch_description():
                              description='false inhibits commands; never bypasses Safety Gate'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel',
                              description='Override with a debug topic for isolated testing'),
-        IncludeLaunchDescription(
+        GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(str(bringup / 'launch/sim.launch.py')),
             condition=IfCondition(LaunchConfiguration('start_sim')),
             launch_arguments={
                 'world': LaunchConfiguration('world'),
                 'map_yaml': LaunchConfiguration('map_yaml'),
                 'gui': LaunchConfiguration('gui'),
-                'rviz': LaunchConfiguration('rviz'),
-                'rviz_config': str(share / 'config/navigation.rviz'),
+                'rviz': 'false',
                 'gazebo_params_file': config,
-            }.items()),
+            }.items())]),
+        Node(package='rviz2', executable='rviz2', name='navigation_rviz', output='screen',
+             condition=IfCondition(LaunchConfiguration('rviz')),
+             arguments=['-d', str(share / 'config/navigation.rviz')],
+             parameters=[{'use_sim_time': True}]),
         Node(package='nav2_amcl', executable='amcl', name='amcl', output='screen',
              parameters=[LaunchConfiguration('amcl_params_file')]),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',

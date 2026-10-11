@@ -44,6 +44,9 @@ def gazebo_moveit_config(arm_params_file=None):
         for key in ['ki', 'kd', 'damping']:
             if not math.isfinite(values[key]) or values[key] < 0:
                 raise RuntimeError(f'{name}.{key} must be finite and nonnegative')
+        friction = values.get('friction', 0.0)
+        if not math.isfinite(friction) or friction < 0:
+            raise RuntimeError(f'{name}.friction must be finite and nonnegative')
         limit = robot.find(f"joint[@name='{name}']/limit")
         initial = values['initial_position']
         if not math.isfinite(initial) or not float(limit.get('lower')) <= initial <= float(
@@ -56,6 +59,7 @@ def gazebo_moveit_config(arm_params_file=None):
         if dynamics is None:
             dynamics = ET.SubElement(physical_joint, 'dynamics')
         dynamics.set('damping', str(values['damping']))
+        dynamics.set('friction', str(friction))
         # Integrate the passive joint damping implicitly in ODE. The hardware
         # PID derivative term remains separate from this physical damping.
         extension = robot.find(f"gazebo[@reference='{name}']")

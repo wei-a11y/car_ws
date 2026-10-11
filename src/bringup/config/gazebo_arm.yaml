@@ -2,7 +2,7 @@
 # Effort: N for prismatic joints, Nm for revolute joints.
 # Velocity/acceleration: m/s, m/s^2 or rad/s, rad/s^2.
 # Passive damping: N*s/m or Nm*s/rad, integrated implicitly by ODE.
-# Start at 10% of the PID derivative gain; verify tracking after changes.
+# Joint friction: N or Nm (not the dimensionless contact friction coefficient).
 # kp/kd start near critical damping: kd ~= 2*sqrt(kp*effective_mass_or_inertia).
 # Conservative no-load gravity bounds with a horizontal base: arm2 <= ~0.56 Nm,
 # arm3 <= ~0.22 Nm, arm4 <= ~0.055 Nm, arm5 <= ~0.020 Nm;
@@ -15,11 +15,13 @@ joint_settings:
     velocity: 0.15
     acceleration: 0.15
     effort: 30.0
-    kp: 400.0
-    ki: 20.0
-    kd: 35.0
-    damping: 3.5
-    integral_limit: 1.0
+    # Active position hold plus passive friction reject base-turn disturbances.
+    kp: 1200.0
+    ki: 80.0
+    kd: 50.0
+    damping: 8.0
+    friction: 1.0
+    integral_limit: 4.0
   arm_1_joint:
     initial_position: 0.0
     velocity: 0.5

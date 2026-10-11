@@ -20,6 +20,9 @@ def _launch_combined(context):
     bringup_share = Path(get_package_share_directory('bringup'))
     arm_params_file = LaunchConfiguration('arm_params_file').perform(context)
     config = gazebo_moveit_config(arm_params_file)
+    position_only = LaunchConfiguration('position_only').perform(context) == 'true'
+    config.robot_description_kinematics['robot_description_kinematics']['arm'][
+        'position_only_ik'] = position_only
     move_group = generate_move_group_launch(config)
     rviz = Node(
         package='rviz2', executable='rviz2', name='rviz2', output='screen',
@@ -28,6 +31,15 @@ def _launch_combined(context):
         parameters=[config.robot_description, config.robot_description_semantic,
                     config.robot_description_kinematics, config.planning_pipelines,
                     config.joint_limits, {'use_sim_time': True}],
+    )
+    commands = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            str(bringup_share / 'launch/arm_command_bridge.launch.py')),
+        condition=IfCondition(LaunchConfiguration('arm_commands')),
+        launch_arguments={
+            'use_sim_time': 'true',
+            'position_only': LaunchConfiguration('position_only'),
+        }.items(),
     )
     return [
         GroupAction([IncludeLaunchDescription(
@@ -45,6 +57,7 @@ def _launch_combined(context):
             SetParameter(name='use_sim_time', value=True),
             *move_group.entities,
             rviz,
+            GroupAction([commands]),
         ]),
     ]
 
@@ -55,6 +68,10 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('gui', default_value='true'),
         DeclareLaunchArgument('rviz', default_value='true'),
+        DeclareLaunchArgument('arm_commands', default_value='true',
+                             description='Enable pose and gripper test commands through MoveIt'),
+        DeclareLaunchArgument('position_only', default_value='true', choices=['true', 'false'],
+                             description='Use position-only IK/goals; false requires full poses'),
         DeclareLaunchArgument(
             'world', default_value=str(description_share / 'world_model/model.world')),
         DeclareLaunchArgument(

@@ -1,0 +1,60 @@
+arm_command_bridge:
+  ros__parameters:
+    # Interface settings are read-only after startup; override YAML then restart.
+    use_sim_time: true
+    pose_topic: /arm/pose_goal
+    gripper_topic: /arm/gripper_command
+    status_topic: /arm/command_status
+    joint_states_topic: /joint_states
+    clock_topic: /clock
+    planning_service: /plan_kinematic_path
+    execution_action: /execute_trajectory
+    arm_group: arm
+    gripper_group: gripper
+    target_frame: base_footprint
+    # This is the existing arm group's tip, not a new grasp TCP offset.
+    end_effector_link: arm_5_link
+    # Five revolute DOFs cannot satisfy arbitrary six-dimensional poses.
+    # Position mode ignores the message quaternion. KDL position_only_ik must
+    # be true in move_group's kinematics config. Full pose is explicit opt-in
+    # and remains subject to reachability; no approximate IK is requested.
+    position_only: true
+    arm_joints: [arm_1_joint, arm_2_joint, arm_3_joint, arm_4_joint, arm_5_joint]
+    # Position bounds copied from the current source URDF, in radians.
+    arm_lower_bounds: [-1.55, 0.0, -3.14, -1.8, -3.14]
+    arm_upper_bounds: [1.55, 3.14, 0.04, 1.8, 3.14]
+    gripper_joints: [clamp_left_joint, clamp_right_joint]
+    # Independent prismatic finger coordinates, in metres; negative opens.
+    gripper_lower_bounds: [-0.035, -0.035]
+    gripper_upper_bounds: [0.0, 0.0]
+    gripper_positions:
+      open: [-0.025, -0.025]
+      half: [-0.0125, -0.0125]
+      close: [0.0, 0.0]
+    # No base/slide command is published. Reject commands while these move.
+    stationary_joints: [arm_base_joint, L_wheel_joint, R_wheel_joint]
+    stationary_velocity_limits: [0.005, 0.05, 0.05]
+    stationary_start_tolerances: [0.001, 0.05, 0.05]
+    state_timeout: 1.0
+    clock_timeout: 1.0
+    # Zero goal stamp means accept now; nonzero stamps must be fresh ROS time.
+    goal_timeout: 5.0
+    future_stamp_tolerance: 0.05
+    planning_time: 5.0
+    planning_attempts: 3
+    planning_response_timeout: 15.0
+    execution_accept_timeout: 5.0
+    execution_time_margin: 10.0
+    max_trajectory_duration: 30.0
+    feedback_timeout: 5.0
+    position_tolerance: 0.001
+    orientation_tolerance: 0.01
+    joint_goal_tolerance: 0.0001
+    # Only floating-point rounding slack for planned position bounds.
+    joint_limit_tolerance: 0.000001
+    arm_feedback_tolerance: 0.001
+    gripper_feedback_tolerance: 0.0005
+    arm_start_tolerance: 0.02
+    gripper_start_tolerance: 0.001
+    velocity_scaling: 0.1
+    acceleration_scaling: 0.1
