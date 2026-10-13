@@ -1,6 +1,9 @@
 lqr_controller:
   ros__parameters:
     use_sim_time: true
+    diagnostics_topic: /controller/lqr/diagnostics
+    reached_goal_topic: /controller/lqr/reached_goal
+    inhibit_service: /controller/lqr/set_inhibit
     path_topic: /plan
     raw_cmd_topic: /cmd_vel_raw
     status_topic: /controller/lqr/status

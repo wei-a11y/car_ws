@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -35,7 +36,7 @@ target_link_libraries(path_processing_core PUBLIC planning_grid_core)
 add_executable(astar_node src/astar_node.cpp)
 target_link_libraries(astar_node astar_core path_processing_core)
 ament_target_dependencies(astar_node
-  rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs
+  rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs diagnostic_msgs tf2 tf2_ros tf2_geometry_msgs
 )
 
 install(TARGETS planning_grid_core astar_core path_processing_core EXPORT planning_grid_coreTargets

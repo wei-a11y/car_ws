@@ -1,0 +1,42 @@
+task_manager:
+  ros__parameters:
+    use_sim_time: true
+    planning_frame: map
+    base_frame: base_footprint
+    odom_frame: odom
+    goal_topic: /goal_pose
+    path_topic: /plan
+    grid_topic: /plan/inflated_grid
+    odom_topic: /odom
+    planner_status_topic: /plan/status
+    planner_diagnostics_topic: /plan/diagnostics
+    lqr_status_topic: /controller/lqr/status
+    lqr_diagnostics_topic: /controller/lqr/diagnostics
+    reached_goal_topic: /controller/lqr/reached_goal
+    inhibit_service: /controller/lqr/set_inhibit
+    safety_status_topic: /controller/safety/status
+    safety_range_topic: /controller/safety/min_range
+    raw_cmd_topic: /cmd_vel_raw
+    cmd_vel_topic: /cmd_vel
+    start_service: /task/start
+    status_topic: /task/status
+    events_topic: /task/events
+    pickup_delay_sec: 3.0
+    dropoff_delay_sec: 3.0
+    planning_timeout_sec: 10.0
+    navigation_timeout_sec: 300.0
+    preparation_timeout_sec: 10.0
+    stop_timeout_sec: 5.0
+    input_timeout_sec: 1.0
+    tf_max_age_sec: 0.5
+    odom_max_age_sec: 0.25
+    # Match deployed LQR tolerances; these do not loosen any navigation protections.
+    position_tolerance: 0.03
+    heading_tolerance: 0.05
+    stopped_linear_tolerance: 0.01
+    stopped_angular_tolerance: 0.02
+    tick_period_sec: 0.05
+    # Relative to the workspace directory; start commands in README from car_ws.
+    log_directory: src/task/logs
+    log_max_bytes: 10485760
+    log_backups: 5

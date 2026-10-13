@@ -323,3 +323,39 @@ TEST(LqrTracker, IdealNonlinearUnicycleConvergesAndStopsOnStraightAndCornerPaths
   }
 }
 }  // namespace
+
+TEST(LqrTracker, TerminalYawBrakesAlignsAcrossPiAndWaitsForStop)
+{
+  controller::LqrTracker tracker(config());
+  const double pi = std::acos(-1.0);
+  tracker.set_path({{0.0, 0.0}, {1.0, 0.0}}, -pi + 0.1);
+  tracker.step({0.5, 0.0, 0.0}, {0.0, 0.0});
+  auto result = tracker.step({0.98, 0.0, pi - 0.1}, {0.04, 0.1});
+  EXPECT_EQ(result.state, controller::TrackerState::BRAKING);
+  expect_zero(result);
+  result = tracker.step({0.98, 0.0, pi - 0.1}, {0.0, 0.0});
+  EXPECT_EQ(result.state, controller::TrackerState::FINAL_ALIGNING);
+  EXPECT_GT(result.command.w, 0.0);
+  EXPECT_DOUBLE_EQ(result.command.v, 0.0);
+  result = tracker.step({0.98, 0.0, -pi + 0.1}, {0.0, 0.1});
+  EXPECT_EQ(result.state, controller::TrackerState::BRAKING);
+  expect_zero(result);
+  result = tracker.step({0.98, 0.0, -pi + 0.1}, {0.0, 0.0});
+  EXPECT_EQ(result.state, controller::TrackerState::GOAL_REACHED);
+  expect_zero(result);
+}
+
+TEST(LqrTracker, SinglePointFinalYawAndTerminalDriftGuard)
+{
+  controller::LqrTracker tracker(config());
+  tracker.set_path({{0.0, 0.0}}, 1.0);
+  EXPECT_EQ(
+    tracker.step({0.0, 0.0, 0.0}, {0.0, 0.0}).state,
+    controller::TrackerState::FINAL_ALIGNING);
+  const auto drift = tracker.step({0.1, 0.0, 0.5}, {0.0, 0.0});
+  EXPECT_EQ(drift.state, controller::TrackerState::TRACKING_ERROR);
+  EXPECT_EQ(drift.diagnostics.fault, controller::TrackerFault::TERMINAL_POSITION_DRIFT);
+  expect_zero(drift);
+  EXPECT_THROW(tracker.set_path({{0.0, 0.0}}, NAN), std::invalid_argument);
+  EXPECT_FALSE(tracker.has_path());
+}
