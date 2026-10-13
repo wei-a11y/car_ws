@@ -11,11 +11,18 @@ planning_grid:
     # Keep the confirmed 0.355 m robot radius in planning_grid.yaml.
     # Larger initial budget for tracking, rasterization and localization error.
     # This is NOT a measured AMCL accuracy or a collision-safety guarantee.
-    safety_margin: 0.10
+    safety_margin: 0.25
 planner:
   ros__parameters:
     use_sim_time: true
     planning_frame: map
+
+dwa_controller:
+  ros__parameters:
+    use_sim_time: true
+    planning_frame: map
+    base_frame: base_footprint
+
 lqr_controller:
   ros__parameters:
     use_sim_time: true

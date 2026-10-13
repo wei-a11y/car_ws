@@ -40,6 +40,7 @@ def test_deployment_contract():
     assert amcl['tf_broadcast'] and not amcl['set_initial_pose']
     assert amcl['always_reset_initial_pose']
     assert config['planner']['ros__parameters']['planning_frame'] == 'map'
+    assert config['dwa_controller']['ros__parameters']['planning_frame'] == 'map'
     controller = config['lqr_controller']['ros__parameters']
     assert controller['planning_frame'] == 'map'
     # Cell-centre quantization fits; the tracking bound alone must not spend the margin.
