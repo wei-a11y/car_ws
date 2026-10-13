@@ -2,6 +2,8 @@
 
 本功能在原取货、送货、返回 home 流程内增加路段检查和障碍恢复。所有新增源码、配置、测试及运行产物均在 `src/task`。原 `task.launch.py` 保留，原任务点位文件不会自动改写。
 
+2026-10-13 合并兼容更新：启动入口和机械臂源配置以 `add_arm@a852a7a` 为准；恢复启动文件引用 `bringup` 的仿真入口，下列构建命令用于合并后的工作区。移障仍由 Gazebo 状态服务和虚拟末端模拟，没有接入 MoveIt 或机械臂关节轨迹。下文 2026-10-10 的测试结果是历史记录，不代表合并后的构建或 Gazebo 验收结果。
+
 ## 已增加的功能
 
 - 新启动入口统一启动 Gazebo、AMCL、规划、LQR、Safety Gate 和恢复任务节点；规划器输出 `/task/candidate_path`，task 检查并向 `/plan` 放行执行片段，底盘仍只接收 Safety Gate 的 `/cmd_vel`。
@@ -28,7 +30,7 @@ mkdir -p "$ROS_LOG_DIR" "$GAZEBO_LOG_PATH" "$TMPDIR"
 colcon --log-base src/task/.colcon/log build \
   --build-base src/task/.colcon/build \
   --install-base src/task/.colcon/install \
-  --packages-select plan controller car_description task \
+  --packages-select car_description arm_moveit_config bringup plan controller task \
   --cmake-args -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 source src/task/.colcon/install/setup.bash
 

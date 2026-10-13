@@ -53,9 +53,10 @@ def _setup(context):
         SetEnvironmentVariable('XDG_CACHE_HOME', str(task_root / 'logs/cache')),
     ]
     if value('start_sim').lower() in ('true', '1', 'yes'):
+        bringup = Path(get_package_share_directory('bringup'))
         world = prepare_world(value('world'), task_root)
         actions.append(IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(str(share / 'launch/sim.launch.py')),
+            PythonLaunchDescriptionSource(str(bringup / 'launch/sim.launch.py')),
             launch_arguments={
                 'world': str(world), 'map_yaml': value('map_yaml'),
                 'gui': value('gui'), 'rviz': value('rviz'),

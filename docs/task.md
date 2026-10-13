@@ -60,6 +60,38 @@
 - Gazebo 启动失败日志：`src/task/logs/gazebo_acceptance_launch.log`。真实场景的定位、激光、物体移位闭环尚未通过；这是环境前提阻塞，不是自动化测试通过证明。
 - **剩余事项：真实 Gazebo 四场景验收。** Gazebo 固定用户日志目录位于 `src/task` 外，现有授权不包含该写入；需要用户明确授权或提供已经兼容运行的 Gazebo，再验证地图对齐、原始激光变化、搬运与复原误差、后方遮挡再阻塞。当前不能宣称完整 Gazebo 验收完成。
 
+## add_arm 合并兼容（2026-10-13）
+
+本次启动入口和机械臂源配置以 `add_arm@a852a7a` 为准：恢复启动文件改用 `bringup` 的仿真入口，独立导航改用 `ros2 launch bringup navigation.launch.py`。task 的取放货和移障仍使用现有模拟后端，没有接入 MoveIt 或机械臂关节轨迹。
+
+以下构建命令用于合并后的工作区，包含 `car_description`、`arm_moveit_config` 和 `bringup`，避免加载旧安装目录中的启动文件或模型。上面的 2026-10-10 验证记录保持为历史结果，不代表本次兼容修改或合并后的构建、Gazebo 验收结果。
+
+本次实际验证使用忽略目录 `build/task_arm_merge/source` 中的预期合并源码副本，未执行真实 `git merge`：
+
+```bash
+source /opt/ros/humble/setup.bash
+colcon --log-base log/task_arm_merge build \
+  --base-paths build/task_arm_merge/source/src \
+  --build-base build/task_arm_merge/build \
+  --install-base install/task_arm_merge \
+  --packages-select car_description arm_moveit_config plan controller bringup task \
+  --cmake-args -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+source install/task_arm_merge/setup.bash
+ros2 launch bringup gazebo_moveit.launch.py --show-args
+ros2 launch task obstacle_recovery.launch.py --show-args
+export PYTHONPATH="$PWD/build/task_arm_merge/source/src/task:$PYTHONPATH"
+colcon --log-base log/task_arm_merge test \
+  --build-base build/task_arm_merge/build --install-base install/task_arm_merge \
+  --packages-select task --ctest-args -R test_task_recovery_launch \
+  --return-code-on-test-failure
+colcon test-result --test-result-base build/task_arm_merge/build/task --verbose
+```
+
+- 六包构建通过，耗时 1 分 46 秒；上述两个 `--show-args` 检查通过。
+- 新 overlay 中调用 `gazebo_moveit_config()` 成功；生成描述只有一个 Gazebo 硬件系统，包含 10 个唯一关节，其中 8 个机械臂/夹爪关节使用 PID 位置接口。已检查 `arm_base_joint` 保留 prismatic 类型、滑轨限位和初始位置。
+- 启动/world 工具的 5 项 pytest 用例通过；新 overlay 的对应 CTest 组通过，汇总含测试组共 6 项、0 errors、0 failures、0 skipped。首次 CTest 优先导入安装副本，无法从测试工作目录定位源码；将源码路径置于 `PYTHONPATH` 首位后复测通过，未为此修改任务逻辑。
+- 未实际启动 Gazebo，以上结果不代表物理仿真或恢复场景验收通过。根目录 `文档.md` 未修改，原文本合并冲突仍需另行处理。
+
 ## 构建与测试命令
 
 在工作区根目录执行，先加载 `/opt/ros/humble/setup.bash` 和原 `install/setup.bash`，设置 `ROS_LOG_DIR=$PWD/src/task/logs/ros`、`TMPDIR=$PWD/src/task/logs/tmp`、`PYTHONDONTWRITEBYTECODE=1`。
@@ -67,7 +99,7 @@
 ```bash
 colcon --log-base src/task/.colcon/log build \
   --build-base src/task/.colcon/build --install-base src/task/.colcon/install \
-  --packages-select plan controller car_description task \
+  --packages-select car_description arm_moveit_config bringup plan controller task \
   --cmake-args -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 source src/task/.colcon/install/setup.bash
 colcon --log-base src/task/.colcon/log test \

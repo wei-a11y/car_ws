@@ -4,6 +4,8 @@
 
 新增内容主要在 task；plan 最小增加末点目标朝向和关联诊断；controller 增加最终转向、到达反馈、禁止运动接口及诊断。Safety Gate、URDF、原导航 launch 未修改。
 
+2026-10-13 合并兼容更新：启动入口和机械臂源配置以 `add_arm@a852a7a` 为准；下列构建、启动命令用于合并后的工作区，导航入口改为 `bringup`。task 的取放货仍是延时模拟，没有接入 MoveIt 或机械臂关节轨迹。下文 2026-10-09 的测试结果是历史记录，不代表合并后的构建或 Gazebo 验收结果。
+
 ## 构建与测试
 
 以下命令均在 `car_ws` 根目录执行。产物和 ROS 日志放在 task 内；不写原工作区 build/install/log。不要混用旧终端里已经运行的导航节点，先结束旧运行，再从新 overlay 启动。
@@ -17,7 +19,7 @@ export TMPDIR="$PWD/src/task/logs/tmp"
 mkdir -p "$TMPDIR"
 colcon --log-base src/task/.colcon/log build \
   --build-base src/task/.colcon/build --install-base src/task/.colcon/install \
-  --packages-select plan controller task
+  --packages-select car_description arm_moveit_config bringup plan controller task
 source src/task/.colcon/install/setup.bash
 colcon --log-base src/task/.colcon/log test \
   --build-base src/task/.colcon/build --install-base src/task/.colcon/install \
@@ -32,7 +34,7 @@ colcon test-result --test-result-base src/task/.colcon/build --verbose
 3. 启动现有导航：
 
 ```bash
-ros2 launch car_description navigation.launch.py
+ros2 launch bringup navigation.launch.py
 ```
 
 4. 在 RViz 用 `/initialpose` 设置正确初始位姿，确认 map、TF、里程计、LiDAR 和 Safety Gate 就绪。
