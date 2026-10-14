@@ -1,5 +1,6 @@
 // Copyright 2026 car_ws contributors
 // SPDX-License-Identifier: Apache-2.0
+
 #include "controller/lqr_tracker.hpp"
 
 #include <algorithm>
@@ -14,13 +15,27 @@ namespace
 {
 const double kPi = std::acos(-1.0);
 
-bool finite(Point2D point) {return std::isfinite(point.x) && std::isfinite(point.y);}
-double distance(Point2D a, Point2D b) {return std::hypot(a.x - b.x, a.y - b.y);}
-bool same(Point2D a, Point2D b) {return a.x == b.x && a.y == b.y;}
+bool finite(Point2D point)
+{
+  return std::isfinite(point.x) && std::isfinite(point.y);
+}
+
+double distance(Point2D a, Point2D b)
+{
+  return std::hypot(a.x - b.x, a.y - b.y);
+}
+
+bool same(Point2D a, Point2D b)
+{
+  return a.x == b.x && a.y == b.y;
+}
 
 bool forward_collinear(Point2D a, Point2D b, Point2D c)
 {
-  const double ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y;
+  const double ux = b.x - a.x;
+  const double uy = b.y - a.y;
+  const double vx = c.x - b.x;
+  const double vy = c.y - b.y;
   const double product = std::hypot(ux, uy) * std::hypot(vx, vy);
   constexpr double kRoundoff = 64.0 * std::numeric_limits<double>::epsilon();
   const double coordinate_scale = std::max(
@@ -75,11 +90,18 @@ std::array<double, 2> lqr_gain(const TrackerConfig & config)
 {
   validate_config(config);
   const auto model = discrete_model(config.v_nominal, config.control_period);
-  const double a = model.a[1], b0 = model.b[0], b1 = model.b[1];
-  double p00 = config.q_lateral, p01 = 0.0, p11 = config.q_heading;
+  const double a = model.a[1];
+  const double b0 = model.b[0];
+  const double b1 = model.b[1];
+  // P is symmetric, so the Riccati iteration only needs three entries.
+  double p00 = config.q_lateral;
+  double p01 = 0.0;
+  double p11 = config.q_heading;
   bool converged = false;
   for (std::size_t i = 0; i < config.riccati_max_iterations; ++i) {
-    const double pb0 = p00 * b0 + p01 * b1, pb1 = p01 * b0 + p11 * b1;
+    // P_next = Q + A^T P A - A^T P B (R + B^T P B)^-1 B^T P A.
+    const double pb0 = p00 * b0 + p01 * b1;
+    const double pb1 = p01 * b0 + p11 * b1;
     const double denominator = config.r_angular + b0 * pb0 + b1 * pb1;
     const double right = a * pb0 + pb1;
     const double n00 = config.q_lateral + p00 - pb0 * pb0 / denominator;
@@ -94,7 +116,9 @@ std::array<double, 2> lqr_gain(const TrackerConfig & config)
     const double residual = std::max(
       {std::abs(n00 - p00), std::abs(n01 - p01),
         std::abs(n11 - p11)}) / std::max({1.0, std::abs(n00), std::abs(n01), std::abs(n11)});
-    p00 = n00; p01 = n01; p11 = n11;
+    p00 = n00;
+    p01 = n01;
+    p11 = n11;
     if (residual <= config.riccati_tolerance) {
       converged = true;
       break;
@@ -103,7 +127,9 @@ std::array<double, 2> lqr_gain(const TrackerConfig & config)
   if (!converged) {
     throw std::runtime_error("Riccati iteration did not converge");
   }
-  const double pb0 = p00 * b0 + p01 * b1, pb1 = p01 * b0 + p11 * b1;
+  // K = (R + B^T P B)^-1 B^T P A.
+  const double pb0 = p00 * b0 + p01 * b1;
+  const double pb1 = p01 * b0 + p11 * b1;
   const double denominator = config.r_angular + b0 * pb0 + b1 * pb1;
   const std::array<double, 2> gain{pb0 / denominator, (a * pb0 + pb1) / denominator};
   // Jury conditions for this ZOH straight-segment model: stable at every fixed
@@ -130,9 +156,6 @@ const char * state_name(TrackerState state)
   return "TRACKING_ERROR";
 }
 
-LqrTracker::LqrTracker(TrackerConfig config)
-: config_(config), gain_(lqr_gain(config)) {}
-
 const char * fault_name(TrackerFault fault)
 {
   switch (fault) {
@@ -145,10 +168,20 @@ const char * fault_name(TrackerFault fault)
   return "UNKNOWN";
 }
 
+LqrTracker::LqrTracker(TrackerConfig config)
+: config_(config), gain_(lqr_gain(config))
+{
+}
+
 void LqrTracker::clear_path()
 {
-  points_.clear(); segments_.clear(); segment_ = 0; progress_ = 0.0;
-  aligning_ = true; fault_ = false; reached_ = false;
+  points_.clear();
+  segments_.clear();
+  segment_ = 0;
+  progress_ = 0.0;
+  aligning_ = true;
+  fault_ = false;
+  reached_ = false;
   fault_diagnostics_ = TrackerDiagnostics{};
 }
 
@@ -158,6 +191,7 @@ void LqrTracker::set_path(const std::vector<Point2D> & path)
   if (path.size() > config_.max_path_points) {
     throw std::invalid_argument("Path exceeds max_path_points");
   }
+  // Preserve every real bend; each becomes a mandatory stop/align point.
   std::vector<Point2D> points;
   for (const auto & point : path) {
     if (!finite(point)) {
@@ -176,12 +210,14 @@ void LqrTracker::set_path(const std::vector<Point2D> & path)
   std::vector<Segment> segments;
   double start_s = 0.0;
   for (std::size_t i = 1; i < points.size(); ++i) {
-    const auto a = points[i - 1], b = points[i];
-    const double length = distance(a, b);
+    const auto start = points[i - 1];
+    const auto end = points[i];
+    const double length = distance(start, end);
     if (!std::isfinite(length) || length <= 0.0 || !std::isfinite(start_s + length)) {
       throw std::invalid_argument("Path segment length is invalid");
     }
-    segments.push_back({a, b, length, std::atan2(b.y - a.y, b.x - a.x), start_s});
+    const double yaw = std::atan2(end.y - start.y, end.x - start.x);
+    segments.push_back({start, end, length, yaw, start_s});
     start_s += length;
   }
   points_ = std::move(points);
@@ -227,21 +263,24 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
     std::abs(actual.w) <= config_.stopped_angular_tolerance;
   const Point2D position{pose.x, pose.y};
   if (segments_.empty()) {
+    // A single point has no heading or segment to track.
     result.nearest = result.lookahead = points_.front();
     diagnostic.start = diagnostic.end = diagnostic.nearest = points_.front();
     diagnostic.nearest_distance = diagnostic.endpoint_distance =
       distance(position, points_.front());
     diagnostic.geometry_valid = true;
-    if (distance(position, points_.front()) > config_.goal_position_tolerance) {
+    if (diagnostic.endpoint_distance > config_.goal_position_tolerance) {
       return latch_fault(TrackerFault::SINGLE_POINT_NOT_REACHED);
-    } else {
-      reached_ = stopped;
-      result.state = stopped ? TrackerState::GOAL_REACHED : TrackerState::BRAKING;
     }
+    reached_ = stopped;
+    result.state = stopped ? TrackerState::GOAL_REACHED : TrackerState::BRAKING;
     return result;
   }
+
+  // Project onto the active segment only; progress cannot skip an unvisited bend.
   const auto & segment = segments_[segment_];
-  const double c = std::cos(segment.yaw), s = std::sin(segment.yaw);
+  const double c = std::cos(segment.yaw);
+  const double s = std::sin(segment.yaw);
   const double projected = (pose.x - segment.start.x) * c + (pose.y - segment.start.y) * s;
   const double nearest_s = std::clamp(
     projected,
@@ -265,17 +304,20 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
   diagnostic.lateral_error = result.lateral_error;
   diagnostic.heading_error = result.heading_error;
   diagnostic.geometry_valid = true;
-  if (distance(position, result.nearest) > config_.max_tracking_error) {
+  // Check geometry before issuing either alignment or tracking commands.
+  if (diagnostic.nearest_distance > config_.max_tracking_error) {
     return latch_fault(TrackerFault::NEAREST_DISTANCE_EXCEEDED);
   }
-  if (distance(position, segment.end) <= config_.goal_position_tolerance) {
+  if (diagnostic.endpoint_distance <= config_.goal_position_tolerance) {
     result.state = TrackerState::BRAKING;
     if (stopped) {
       if (segment_ + 1 == segments_.size()) {
         reached_ = true;
         result.state = TrackerState::GOAL_REACHED;
       } else {
-        ++segment_; progress_ = 0.0; aligning_ = true;
+        ++segment_;
+        progress_ = 0.0;
+        aligning_ = true;
         result.state = TrackerState::ALIGNING;
       }
     }
@@ -285,6 +327,7 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
     // An end projection is not proof of reaching the actual endpoint.
     return latch_fault(TrackerFault::SEGMENT_END_OVERSHOOT);
   }
+  // Stop linear motion, align the heading, then wait for rotation to stop.
   if (std::abs(result.heading_error) > config_.align_trigger) {
     aligning_ = true;
   }
@@ -305,6 +348,7 @@ TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
     }
     aligning_ = false;
   }
+  // Straight-segment LQR feedback with slowdown toward the next mandatory stop.
   result.state = TrackerState::TRACKING;
   result.reference_speed = std::min(config_.v_nominal, config_.slowdown_gain * result.remaining);
   result.command.v = std::clamp(result.reference_speed, 0.0, config_.v_max);

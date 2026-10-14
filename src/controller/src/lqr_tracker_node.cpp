@@ -1,5 +1,6 @@
 // Copyright 2026 car_ws contributors
 // SPDX-License-Identifier: Apache-2.0
+
 #include "controller/lqr_tracker.hpp"
 
 #include <array>
@@ -35,6 +36,27 @@ public:
   LqrTrackerNode()
   : Node("lqr_controller")
   {
+    configure_frames();
+    tracker_config_ = read_tracker_config();
+    tracker_ = std::make_unique<LqrTracker>(tracker_config_);
+    configure_timing();
+    create_interfaces();
+    validate_topics();
+    create_timers();
+
+    const auto gain = tracker_->gain();
+    RCLCPP_INFO(
+      get_logger(), "LQR K=[%.6f, %.6f], T=%.3f s, v_nom=%.3f m/s; %s -> %s",
+      gain[0], gain[1], period_, tracker_config_.v_nominal,
+      path_sub_->get_topic_name(), command_pub_->get_topic_name());
+    stop(
+      "WAIT_PATH",
+      "No path; Safety Gate and verified localization are deployment prerequisites");
+  }
+
+private:
+  void configure_frames()
+  {
     frame_ = parameter<std::string>("planning_frame");
     base_ = parameter<std::string>("base_frame");
     odom_frame_ = parameter<std::string>("odom_frame");
@@ -45,6 +67,10 @@ public:
       throw std::invalid_argument(
               "Verified frames and TF pose_source are required; no odom fallback");
     }
+  }
+
+  TrackerConfig read_tracker_config()
+  {
     TrackerConfig c;
     c.control_period = parameter<double>("control_period");
     c.v_nominal = parameter<double>("v_nominal");
@@ -67,10 +93,12 @@ public:
     c.stopped_angular_tolerance = parameter<double>("stopped_angular_tolerance");
     c.max_tracking_error = parameter<double>("max_tracking_error");
     c.max_path_points = count("max_path_points");
-    max_path_points_ = c.max_path_points;
-    tracker_config_ = c;  // logging thresholds, not a second control configuration
-    tracker_ = std::make_unique<LqrTracker>(c);
-    period_ = c.control_period;
+    return c;
+  }
+
+  void configure_timing()
+  {
+    period_ = tracker_config_.control_period;
     tf_timeout_ = parameter<double>("tf_timeout_sec");
     tf_max_age_ = parameter<double>("tf_max_age_sec");
     odom_max_age_ = parameter<double>("odom_max_age_sec");
@@ -94,10 +122,14 @@ public:
     }
     const auto stable_gain = tracker_->gain();
     if (max_control_gap_ * stable_gain[1] >= 2.0 ||
-      stable_gain[1] <= 0.5 * c.v_nominal * max_control_gap_ * stable_gain[0])
+      stable_gain[1] <= 0.5 * tracker_config_.v_nominal * max_control_gap_ * stable_gain[0])
     {
       throw std::invalid_argument("max_control_gap_sec exceeds the local stability range");
     }
+  }
+
+  void create_interfaces()
+  {
     buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
     listener_ = std::make_unique<tf2_ros::TransformListener>(*buffer_, this, true);
     const auto qos = rclcpp::QoS(1).reliable();
@@ -111,8 +143,12 @@ public:
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       topic("odom_topic"), rclcpp::SensorDataQoS().keep_last(5),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr message) {on_odom(*message);});
+  }
+
+  void validate_topics() const
+  {
     const std::string output = command_pub_->get_topic_name();
-    // These are confirmed base inputs. Phase 6 must not bypass the not-yet-implemented Safety Gate.
+    // Raw tracker output must pass through the Safety Gate before reaching the base.
     if (output == "/cmd_vel" || output == "/diff_drive_controller/cmd_vel_unstamped") {
       throw std::invalid_argument("LQR output must be a separate raw topic, never the base command");
     }
@@ -125,33 +161,18 @@ public:
         }
       }
     }
+  }
+
+  void create_timers()
+  {
     last_tick_ = std::chrono::steady_clock::now();
     timer_ = rclcpp::create_timer(
       this, get_clock(), rclcpp::Duration::from_seconds(period_),
       [this]() {on_tick();});
     watchdog_ = create_wall_timer(
-      std::chrono::duration<double>(period_), [this]() {
-        if (std::chrono::duration<double>(std::chrono::steady_clock::now() - last_tick_).count() >
-        watchdog_timeout_)
-        {
-          stop(
-            "CLOCK_UNAVAILABLE", "stage=CLOCK_WATCHDOG reason=CONTROL_TIMER_STALLED wall_gap=" +
-            std::to_string(
-              std::chrono::duration<double>(
-                std::chrono::steady_clock::now() - last_tick_).count()) +
-            "s limit=" + std::to_string(watchdog_timeout_) + "s");
-        }
-      });
-    const auto gain = tracker_->gain();
-    RCLCPP_INFO(
-      get_logger(), "LQR K=[%.6f, %.6f], T=%.3f s, v_nom=%.3f m/s; %s -> %s",
-      gain[0], gain[1], period_, c.v_nominal, path_sub_->get_topic_name(), output.c_str());
-    stop(
-      "WAIT_PATH",
-      "No path; Safety Gate and verified localization are deployment prerequisites");
+      std::chrono::duration<double>(period_), [this]() {on_watchdog();});
   }
 
-private:
   template<typename T>
   T parameter(const std::string & name)
   {
@@ -261,10 +282,10 @@ private:
         throw std::invalid_argument(
                 "stage=PATH_FRAME received=" + message.header.frame_id + " expected=" + frame_);
       }
-      if (message.poses.size() > max_path_points_) {
+      if (message.poses.size() > tracker_config_.max_path_points) {
         throw std::invalid_argument(
                 "stage=PATH_SIZE count=" + std::to_string(message.poses.size()) +
-                " limit=" + std::to_string(max_path_points_));
+                " limit=" + std::to_string(tracker_config_.max_path_points));
       }
       std::vector<Point2D> points;
       points.reserve(message.poses.size());
@@ -316,7 +337,8 @@ private:
     odom_ = message;
   }
 
-  bool fresh(const builtin_interfaces::msg::Time & stamp, double limit, const rclcpp::Time & time)
+  bool fresh(
+    const builtin_interfaces::msg::Time & stamp, double limit, const rclcpp::Time & time) const
   {
     if (stamp.sec < 0 || stamp.nanosec >= 1000000000U) {
       return false;
@@ -337,14 +359,68 @@ private:
            "s abs_age_limit=" + std::to_string(limit) + "s";
   }
 
+  Pose2D lookup_pose(const rclcpp::Time & time) const
+  {
+    const auto transform = buffer_->lookupTransform(
+      frame_, base_, tf2::TimePointZero, tf2::durationFromSec(tf_timeout_));
+    const auto & position = transform.transform.translation;
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
+      throw std::runtime_error("stage=TF_COORDINATES reason=NONFINITE_XYZ");
+    }
+    if (!valid_quaternion(transform.transform.rotation)) {
+      throw std::runtime_error("stage=TF_QUATERNION reason=INVALID_NORM");
+    }
+    // A zero timestamp is valid for static TF; dynamic transforms must be fresh.
+    if ((transform.header.stamp.sec != 0 || transform.header.stamp.nanosec != 0) &&
+      !fresh(transform.header.stamp, tf_max_age_, time))
+    {
+      throw std::runtime_error(
+              "stage=TF_TIME " + age_detail(transform.header.stamp, tf_max_age_, time));
+    }
+    return {position.x, position.y, tf2::getYaw(transform.transform.rotation)};
+  }
+
+  void publish_result(const TrackerResult & result)
+  {
+    command(result.command);
+    status(
+      state_name(result.state), tracker_detail(result),
+      fault_name(result.diagnostics.fault));
+
+    std_msgs::msg::Float64MultiArray debug;
+    debug.layout.dim.resize(1);
+    debug.layout.dim[0].label =
+      "ey,etheta,progress,remaining,v_ref,v_cmd,w_cmd,nearest_x,nearest_y,lookahead_x,lookahead_y";
+    debug.data = {result.lateral_error, result.heading_error, result.progress, result.remaining,
+      result.reference_speed, result.command.v, result.command.w,
+      result.nearest.x, result.nearest.y, result.lookahead.x, result.lookahead.y};
+    debug.layout.dim[0].size = debug.layout.dim[0].stride = debug.data.size();
+    debug_pub_->publish(debug);
+    RCLCPP_DEBUG_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "ey=%.4f m etheta=%.4f rad s=%.3f remain=%.3f v=%.3f w=%.3f preview=(%.3f,%.3f)",
+      result.lateral_error, result.heading_error, result.progress, result.remaining,
+      result.command.v, result.command.w, result.lookahead.x, result.lookahead.y);
+  }
+
+  void on_watchdog()
+  {
+    const double wall_gap =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - last_tick_).count();
+    if (wall_gap > watchdog_timeout_) {
+      stop(
+        "CLOCK_UNAVAILABLE", "stage=CLOCK_WATCHDOG reason=CONTROL_TIMER_STALLED wall_gap=" +
+        std::to_string(wall_gap) + "s limit=" + std::to_string(watchdog_timeout_) + "s");
+    }
+  }
+
   void on_tick()
   {
     last_tick_ = std::chrono::steady_clock::now();
     const auto time = now();
     const double gap = last_ros_time_ ? (time - *last_ros_time_).seconds() : 0.0;
-    if (time.nanoseconds() <= 0 || (last_ros_time_ &&
-      ((time - *last_ros_time_).seconds() <= 0.0 ||
-      (time - *last_ros_time_).seconds() > max_control_gap_)))
+    if (time.nanoseconds() <= 0 ||
+      (last_ros_time_ && (gap <= 0.0 || gap > max_control_gap_)))
     {
       last_ros_time_ = time;
       stop(
@@ -371,42 +447,12 @@ private:
       return;
     }
     try {
-      const auto transform = buffer_->lookupTransform(
-        frame_, base_, tf2::TimePointZero, tf2::durationFromSec(tf_timeout_));
-      const auto & position = transform.transform.translation;
-      if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
-        throw std::runtime_error("stage=TF_COORDINATES reason=NONFINITE_XYZ");
-      }
-      if (!valid_quaternion(transform.transform.rotation)) {
-        throw std::runtime_error("stage=TF_QUATERNION reason=INVALID_NORM");
-      }
-      if ((transform.header.stamp.sec != 0 || transform.header.stamp.nanosec != 0) &&
-        !fresh(transform.header.stamp, tf_max_age_, time))
-      {
-        throw std::runtime_error(
-                "stage=TF_TIME " + age_detail(transform.header.stamp, tf_max_age_, time));
-      }
+      // TF supplies position; odometry supplies actual body-frame velocity only.
+      const auto pose = lookup_pose(time);
       const auto result = tracker_->step(
-        {position.x, position.y, tf2::getYaw(transform.transform.rotation)},
+        pose,
         {odom_->twist.twist.linear.x, odom_->twist.twist.angular.z});
-      command(result.command);
-      status(
-        state_name(result.state), tracker_detail(result),
-        fault_name(result.diagnostics.fault));
-      std_msgs::msg::Float64MultiArray debug;
-      debug.layout.dim.resize(1);
-      debug.layout.dim[0].label =
-        "ey,etheta,progress,remaining,v_ref,v_cmd,w_cmd,nearest_x,nearest_y,lookahead_x,lookahead_y";
-      debug.layout.dim[0].size = debug.layout.dim[0].stride = 11;
-      debug.data = {result.lateral_error, result.heading_error, result.progress, result.remaining,
-        result.reference_speed, result.command.v, result.command.w,
-        result.nearest.x, result.nearest.y, result.lookahead.x, result.lookahead.y};
-      debug_pub_->publish(debug);
-      RCLCPP_DEBUG_THROTTLE(
-        get_logger(), *get_clock(), 1000,
-        "ey=%.4f m etheta=%.4f rad s=%.3f remain=%.3f v=%.3f w=%.3f preview=(%.3f,%.3f)",
-        result.lateral_error, result.heading_error, result.progress, result.remaining,
-        result.command.v, result.command.w, result.lookahead.x, result.lookahead.y);
+      publish_result(result);
     } catch (const std::exception & error) {
       stop(
         "TF_UNAVAILABLE", "stage=CURRENT_POSE target=" + frame_ + " source=" + base_ +
@@ -414,12 +460,20 @@ private:
     }
   }
 
-  std::string frame_, base_, odom_frame_, last_status_, last_reason_, path_error_ = "WAIT_PATH";
-  std::string odom_error_ = "stage=ODOM_INPUT reason=NO_MESSAGE";
+  // Read-only startup configuration.
+  std::string frame_;
+  std::string base_;
+  std::string odom_frame_;
   TrackerConfig tracker_config_{};
   double diagnostic_period_;
-  double period_, tf_timeout_, tf_max_age_, odom_max_age_, max_control_gap_, watchdog_timeout_;
-  std::size_t max_path_points_;
+  double period_;
+  double tf_timeout_;
+  double tf_max_age_;
+  double odom_max_age_;
+  double max_control_gap_;
+  double watchdog_timeout_;
+
+  // Tracker state, input snapshots and diagnostic throttling.
   std::unique_ptr<LqrTracker> tracker_;
   std::unique_ptr<tf2_ros::Buffer> buffer_;
   std::unique_ptr<tf2_ros::TransformListener> listener_;
@@ -427,12 +481,19 @@ private:
   std::optional<rclcpp::Time> last_ros_time_;
   std::chrono::steady_clock::time_point last_tick_;
   std::chrono::steady_clock::time_point last_log_{};
+  std::string last_status_;
+  std::string last_reason_;
+  std::string path_error_ = "WAIT_PATH";
+  std::string odom_error_ = "stage=ODOM_INPUT reason=NO_MESSAGE";
+
+  // ROS communication and control timers.
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr command_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr debug_pub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  rclcpp::TimerBase::SharedPtr timer_, watchdog_;
+  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr watchdog_;
 };
 }  // namespace controller
 
