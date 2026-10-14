@@ -103,10 +103,7 @@ def calculate_cross_track_error(
 
 def main():
 
-    data_dir = Path(
-        Path.home() /
-        'cars/car/car_ws/data/path_record'
-    )
+    data_dir = Path('data/path_record')  # 相对于启动程序时的工作目录
 
     planned_file = (
         data_dir /
@@ -307,14 +304,14 @@ def main():
     )
 
     plt.plot(
-        planned['x'],
-        planned['y'],
+        planned['x'].to_numpy(),
+        planned['y'].to_numpy(),
         label='A* / planned path'
     )
 
     plt.plot(
-        actual['x'],
-        actual['y'],
+        actual['x'].to_numpy(),
+        actual['y'].to_numpy(),
         label='Actual trajectory'
     )
 
@@ -370,7 +367,7 @@ def main():
     )
 
     plt.plot(
-        actual['time'],
+        actual['time'].to_numpy(),
         errors
     )
 

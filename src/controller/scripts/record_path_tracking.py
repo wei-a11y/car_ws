@@ -25,7 +25,7 @@ class PathRecorder(Node):
         self.declare_parameter('record_period', 0.05)
         self.declare_parameter(
             'output_dir',
-            str(Path.home() / 'cars/car/car_ws/data/path_record')
+            'data/path_record'  # 相对于启动程序时的工作目录
         )
 
         self.plan_topic = self.get_parameter(

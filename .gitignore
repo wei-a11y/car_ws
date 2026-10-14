@@ -5,3 +5,4 @@ log/
 .vscode/
 # 也建议忽略Python的缓存文件夹
 __pycache__/
+data/
