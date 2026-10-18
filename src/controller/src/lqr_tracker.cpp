@@ -59,7 +59,10 @@ void validate_config(const TrackerConfig & c)
     c.q_lateral, c.q_heading, c.r_angular, c.riccati_tolerance, c.lookahead_distance,
     c.nearest_forward_distance, c.nearest_backward_distance, c.slowdown_gain, c.align_gain,
     c.heading_tolerance, c.align_trigger, c.goal_position_tolerance,
-    c.stopped_linear_tolerance, c.stopped_angular_tolerance, c.max_tracking_error};
+    c.stopped_linear_tolerance, c.stopped_angular_tolerance, c.max_tracking_error,
+    c.linear_acceleration, c.linear_deceleration, c.angular_acceleration, c.lateral_acceleration,
+    c.feedforward_angular_fraction, c.tracking_align_trigger, c.max_reference_curvature,
+    c.reference_heading_tolerance};
   for (double value : positive) {
     if (!std::isfinite(value) || value <= 0.0) {
       throw std::invalid_argument("Tracker numeric parameters must be finite and positive");
@@ -67,7 +70,11 @@ void validate_config(const TrackerConfig & c)
   }
   if (c.v_nominal > c.v_max || c.heading_tolerance >= c.align_trigger ||
     c.align_trigger >= kPi / 2.0 || c.riccati_tolerance >= 1.0 ||
-    c.riccati_max_iterations == 0 || c.max_path_points == 0)
+    c.riccati_max_iterations == 0 || c.max_path_points == 0 ||
+    c.feedforward_angular_fraction >= 1.0 || c.tracking_align_trigger >= kPi / 2.0 ||
+    c.tracking_align_trigger <= c.heading_tolerance ||
+    c.reference_heading_tolerance >= kPi / 2.0 ||
+    !std::isfinite(c.feedforward_preview_distance) || c.feedforward_preview_distance < 0.0)
   {
     throw std::invalid_argument("Inconsistent tracker limits, alignment thresholds or solver limits");
   }
@@ -183,6 +190,12 @@ void LqrTracker::clear_path()
   fault_ = false;
   reached_ = false;
   fault_diagnostics_ = TrackerDiagnostics{};
+  continuous_ = false;
+  reference_.clear();
+  arc_lengths_.clear();
+  speed_limits_.clear();
+  phase_begin_ = next_stop_ = 0;
+  continuous_progress_ = 0.0;
 }
 
 void LqrTracker::set_path(const std::vector<Point2D> & path)
@@ -226,6 +239,9 @@ void LqrTracker::set_path(const std::vector<Point2D> & path)
 
 TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
 {
+  if (continuous_) {
+    return step_continuous(pose, actual);
+  }
   TrackerResult result;
   if (!has_path()) {
     return result;

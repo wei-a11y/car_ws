@@ -19,6 +19,7 @@
   <depend>tf2</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>rcl_interfaces</depend>
+  <depend>common_msg</depend>
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
@@ -29,6 +30,7 @@
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>rosgraph_msgs</test_depend>
+  <test_depend>plan</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

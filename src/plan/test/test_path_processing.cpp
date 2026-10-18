@@ -501,4 +501,83 @@ TEST(PathProcessing, RandomSmoothedAStarPathsStayFreeAndDoNotGrow)
   EXPECT_GT(successful, 20);
   EXPECT_GT(rounded, 0U);
 }
+TEST(PathProcessing, ProfileDistinguishesArcSamplesFromRequiredStopAndCarriesAnalyticCurvature)
+{
+  const auto grid = make_grid();
+  plan::PathProcessingStats stats;
+  const auto path = plan::process_path(
+    grid,
+    {{0.5, 0.5}, {3.5, 0.5}, {3.5, 4.5}, {3.65, 4.5}}, arc_config(), &stats);
+  std::size_t stops = 0, curved = 0;
+  for (const auto & point : path) {
+    stops += point.stop_required;
+    if (point.curvature != 0.0) {
+      ++curved;
+      EXPECT_FALSE(point.stop_required);
+      EXPECT_NEAR(point.curvature, 1.0 / 0.6, 1e-12);
+    }
+  }
+  EXPECT_GT(curved, 5U);
+  EXPECT_EQ(stops, 2U);  // One retained bend and the terminal point.
+  EXPECT_TRUE(path.back().stop_required);
+  EXPECT_FALSE(path.front().stop_required);
+  const auto single = plan::process_path(grid, {{0.5, 0.5}}, arc_config());
+  EXPECT_TRUE(single.front().stop_required);
+}
+
+TEST(PathProcessing, RadiusCostCanSelectLargerRadiusWithinConfiguredSpaceAndLimit)
+{
+  auto cfg = arc_config(0.35);
+  cfg.arc_radius_max = 0.65;
+  const auto path = plan::process_path(
+    make_grid(), {{1.5, 1.5}, {5.5, 1.5}, {5.5, 5.5}}, cfg);
+  const auto arc = std::find_if(
+    path.begin(), path.end(),
+    [](const auto & p) {return p.curvature != 0.0;});
+  ASSERT_NE(arc, path.end());
+  const double radius = 1.0 / std::abs(arc->curvature);
+  EXPECT_GT(radius, cfg.arc_radius);
+  EXPECT_LE(radius, cfg.arc_radius_max);
+}
+
+TEST(PathProcessing, UnusedNeighbourSpaceIsRedistributedInsteadOfRetainingBothCorners)
+{
+  plan::PathProcessingStats stats;
+  const auto path = plan::process_path(
+    make_grid(),
+    {{0.5, 0.5}, {3.5, 0.5}, {3.5, 1.2}, {3.6, 1.2}}, arc_config(0.6, 0.4), &stats);
+  EXPECT_EQ(stats.rounded_corners, 1U);
+  EXPECT_EQ(stats.retained_corners, 1U);
+  EXPECT_FALSE(contains(path, 3.5, 0.5));
+  EXPECT_TRUE(contains(path, 3.5, 1.2));
+}
+
+TEST(PathProcessing, ShortcutCanBeRecoveredWhenItsCornerCannotFitASafeArc)
+{
+  std::vector<std::int8_t> cells(4900, 0);
+  cells[5 * 70 + 30] = 100;
+  cells[25 * 70 + 25] = 100;
+  cells[46 * 70 + 8] = 100;
+  const auto grid = plan::PlanningGrid::from_inflated_grid(
+    {70, 70, 0.1, 0.0, 0.0, 0.0}, std::move(cells), 10000);
+  const std::vector<plan::Point2D> raw{{0.5, 0.5}, {0.5, 5.5}, {5.5, 5.5}, {5.5, 0.5}};
+  auto cfg = arc_config(0.6, 0.6);
+  cfg.enable_shortcut = true;
+  cfg.retained_corner_cost = 10.0;
+  cfg.recover_shortcut_corners = false;
+  plan::PathProcessingStats initial, recovered;
+  plan::process_path(grid, raw, cfg, &initial);
+  EXPECT_GT(initial.retained_corners, 0U);
+  cfg.recover_shortcut_corners = true;
+  const auto path = plan::process_path(grid, raw, cfg, &recovered);
+  EXPECT_TRUE(recovered.shortcut_recovered);
+  EXPECT_EQ(recovered.retained_corners, 0U);
+  EXPECT_EQ(recovered.rounded_corners, 2U);
+  for (std::size_t i = 1; i < path.size(); ++i) {
+    EXPECT_TRUE(
+      plan::line_of_sight(
+        grid,
+        {path[i - 1].x, path[i - 1].y}, {path[i].x, path[i].y}));
+  }
+}
 }  // namespace

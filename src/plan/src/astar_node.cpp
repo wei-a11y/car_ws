@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "common_msg/msg/path_profile.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
@@ -65,14 +66,24 @@ public:
     processing_config_.arc_max_deviation =
       read_parameter<double>("post_processing.arc_max_deviation");
     processing_config_.arc_max_angle = read_parameter<double>("post_processing.arc_max_angle");
+    processing_config_.arc_radius_max = read_parameter<double>("post_processing.arc_radius_max");
+    processing_config_.arc_radius_weight = read_parameter<double>(
+      "post_processing.arc_radius_weight");
+    processing_config_.arc_curvature_weight =
+      read_parameter<double>("post_processing.arc_curvature_weight");
+    processing_config_.recover_shortcut_corners =
+      read_parameter<bool>("post_processing.recover_shortcut_corners");
+    processing_config_.retained_corner_cost =
+      read_parameter<double>("post_processing.retained_corner_cost");
     validate_path_processing_config(processing_config_);
     const auto map_topic = read_parameter<std::string>("inflated_grid_topic");
     const auto goal_topic = read_parameter<std::string>("goal_topic");
     const auto path_topic = read_parameter<std::string>("path_topic");
     const auto raw_path_topic = read_parameter<std::string>("raw_path_topic");
     const auto status_topic = read_parameter<std::string>("status_topic");
+    const auto profile_topic = read_parameter<std::string>("profile_topic");
     if (map_topic.empty() || goal_topic.empty() || path_topic.empty() ||
-      raw_path_topic.empty() || status_topic.empty())
+      raw_path_topic.empty() || status_topic.empty() || profile_topic.empty())
     {
       throw std::invalid_argument("Planner topic names must not be empty");
     }
@@ -82,6 +93,7 @@ public:
     const auto volatile_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
     path_pub_ = create_publisher<nav_msgs::msg::Path>(path_topic, volatile_qos);
     raw_path_pub_ = create_publisher<nav_msgs::msg::Path>(raw_path_topic, volatile_qos);
+    profile_pub_ = create_publisher<common_msg::msg::PathProfile>(profile_topic, volatile_qos);
     status_pub_ = create_publisher<std_msgs::msg::String>(status_topic, latched_qos);
     map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
       map_topic, latched_qos,
@@ -94,8 +106,9 @@ public:
     const std::string resolved_path = path_pub_->get_topic_name();
     const std::string resolved_raw_path = raw_path_pub_->get_topic_name();
     const std::string resolved_status = status_pub_->get_topic_name();
-    const std::array<std::string, 5> topics = {
-      resolved_map, resolved_goal, resolved_path, resolved_raw_path, resolved_status};
+    const std::array<std::string, 6> topics = {
+      resolved_map, resolved_goal, resolved_path, resolved_raw_path, resolved_status,
+      profile_pub_->get_topic_name()};
     for (std::size_t i = 0; i < topics.size(); ++i) {
       for (std::size_t j = i + 1; j < topics.size(); ++j) {
         if (topics[i] == topics[j]) {
@@ -138,6 +151,9 @@ private:
     empty.header.stamp = now();
     path_pub_->publish(empty);
     raw_path_pub_->publish(empty);
+    common_msg::msg::PathProfile profile;
+    profile.path = empty;
+    profile_pub_->publish(profile);
     path_valid_ = false;
   }
 
@@ -266,6 +282,14 @@ private:
         path.poses.push_back(pose);
       }
       raw_path_pub_->publish(raw_path);
+      common_msg::msg::PathProfile profile;
+      profile.path = path;
+      for (const auto & point : processed) {
+        profile.tangent_yaw.push_back(point.tangent_yaw);
+        profile.curvature.push_back(point.curvature);
+        profile.stop_required.push_back(point.stop_required);
+      }
+      profile_pub_->publish(profile);
       path_pub_->publish(path);
       path_valid_ = true;
       publish_status(
@@ -273,7 +297,10 @@ private:
         " processed points from " + std::to_string(raw_path.poses.size()) +
         " raw cells; A* cost=" + std::to_string(result.total_cost) + " m; rounded corners=" +
         std::to_string(processing_stats.rounded_corners) + "; retained corners=" +
-        std::to_string(processing_stats.retained_corners));
+        std::to_string(processing_stats.retained_corners) + "; space limited=" +
+        std::to_string(processing_stats.space_limited_corners) + "; collision limited=" +
+        std::to_string(processing_stats.collision_limited_corners) + "; shortcut recovered=" +
+        std::to_string(processing_stats.shortcut_recovered));
     } catch (const tf2::TransformException & error) {
       fail(PlanStatus::TF_UNAVAILABLE, error.what());
     } catch (const std::exception & error) {
@@ -294,6 +321,7 @@ private:
   std::unique_ptr<tf2_ros::TransformListener> listener_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr raw_path_pub_;
+  rclcpp::Publisher<common_msg::msg::PathProfile>::SharedPtr profile_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;

@@ -21,6 +21,9 @@ struct PathPoint2D
   double x;
   double y;
   double yaw;
+  double tangent_yaw = 0.0;
+  double curvature = 0.0;  // outgoing primitive; signed 1/metre
+  bool stop_required = false;
 };
 
 struct PathProcessingConfig
@@ -35,12 +38,20 @@ struct PathProcessingConfig
   std::size_t arc_radius_samples = 6;  // includes preferred/space-limited and minimum radii
   double arc_max_deviation = 0.001;  // maximum arc-to-chord distance, metres
   double arc_max_angle = 0.10;  // maximum angle between arc samples, radians
+  double arc_radius_max = 0.0;  // zero keeps the preferred radius as the upper bound
+  double arc_radius_weight = 1.0;
+  double arc_curvature_weight = 0.04;
+  bool recover_shortcut_corners = true;
+  double retained_corner_cost = 2.0;  // equivalent metres per required stop
 };
 
 struct PathProcessingStats
 {
   std::size_t rounded_corners = 0;
   std::size_t retained_corners = 0;
+  std::size_t space_limited_corners = 0;
+  std::size_t collision_limited_corners = 0;
+  bool shortcut_recovered = false;
 };
 
 void validate_path_processing_config(const PathProcessingConfig & config);

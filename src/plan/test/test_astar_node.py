@@ -8,6 +8,7 @@ import subprocess
 import time
 
 from geometry_msgs.msg import PoseStamped, TransformStamped
+from common_msg.msg import PathProfile
 from nav_msgs.msg import OccupancyGrid, Path
 import pytest
 import rclpy
@@ -86,13 +87,14 @@ def transform(child, x, y):
 class Harness:
     def __init__(self, node):
         self.node = node
-        self.paths, self.raw_paths, self.statuses = [], [], []
+        self.paths, self.raw_paths, self.statuses, self.profiles = [], [], [], []
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.maps = node.create_publisher(OccupancyGrid, '/plan/inflated_grid', latched)
         self.goals = node.create_publisher(PoseStamped, '/goal_pose', 1)
         node.create_subscription(Path, '/plan', self.paths.append, 1)
         node.create_subscription(Path, '/plan/raw_path', self.raw_paths.append, 1)
+        node.create_subscription(PathProfile, '/plan/profile', self.profiles.append, 1)
         node.create_subscription(String, '/plan/status', self.statuses.append, latched)
         spin_until(node, lambda: self.maps.get_subscription_count() > 0 and
                    self.goals.get_subscription_count() > 0 and
@@ -118,6 +120,12 @@ class Harness:
         assert bool(path.poses) == (expected == 'SUCCESS')
         assert all(p.header == path.header for p in path.poses)
         raw = self.raw_paths[-1]
+        spin_until(self.node, lambda: bool(self.profiles) and self.profiles[-1].path == path)
+        profile = self.profiles[-1]
+        assert (len(profile.curvature) == len(profile.tangent_yaw) ==
+                len(profile.stop_required) == len(path.poses))
+        if path.poses:
+            assert profile.stop_required[-1]
         assert raw.header == path.header
         assert bool(raw.poses) == (expected == 'SUCCESS')
         assert all(p.header == raw.header for p in raw.poses)
@@ -319,6 +327,10 @@ def test_processing_limit_failure_clears_both_outputs(node):
     'post_processing.arc_radius_samples:=1001',
     'post_processing.arc_max_deviation:=0.0',
     'post_processing.arc_max_angle:=2.0',
+    'post_processing.arc_radius_max:=0.1',
+    'post_processing.arc_radius_weight:=-1.0',
+    'post_processing.retained_corner_cost:=-1.0',
+    'profile_topic:=/plan',
     'raw_path_topic:=/plan',
 ])
 def test_invalid_processing_config_or_aliased_output_rejected(node, override):

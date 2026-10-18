@@ -5,6 +5,7 @@ planner:
     goal_topic: /goal_pose
     path_topic: /plan
     raw_path_topic: /plan/raw_path
+    profile_topic: /plan/profile  # exact paired Path, analytic tangents/curvature and stop flags
     status_topic: /plan/status
     # Required: fill from the actual map frame; no map/localization is assumed.
     planning_frame: ""
@@ -23,3 +24,8 @@ planner:
       arc_radius_samples: 6  # bounded search, including both radius limits; range [2, 1000]
       arc_max_deviation: 0.001  # metres; also used for conservative continuous-arc checking
       arc_max_angle: 0.10  # radians between arc samples; keeps low-speed bends visibly smooth
+      arc_radius_max: 0.65  # allow a larger radius when collision/available space permit
+      arc_radius_weight: 1.0  # cost: weight * (radius - preferred_radius)^2
+      arc_curvature_weight: 0.04  # cost: weight / radius; favours gentler bends
+      recover_shortcut_corners: true  # compare pre-shortcut route when shortcut leaves stops
+      retained_corner_cost: 2.0  # metres-equivalent cost per retained corner in that comparison

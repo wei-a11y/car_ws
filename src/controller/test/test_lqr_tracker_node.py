@@ -8,6 +8,7 @@ import subprocess
 import time
 
 from builtin_interfaces.msg import Time
+from common_msg.msg import PathProfile
 from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
 from nav_msgs.msg import Odometry, Path
 import pytest
@@ -21,7 +22,7 @@ from tf2_ros import TransformBroadcaster
 def command(*overrides):
     return [os.environ['TRACKER_EXECUTABLE'], '--ros-args', '--params-file',
             os.environ['TRACKER_CONFIG'], '-p', 'planning_frame:=control_debug',
-            '-p', 'use_sim_time:=false', *overrides]
+            '-p', 'use_sim_time:=false', '-p', 'require_path_profile:=false', *overrides]
 
 
 @contextmanager
@@ -96,6 +97,7 @@ class Harness:
         self.clock_ns = 1000000000 if simulated_clock else None
         self.emit_clock = simulated_clock
         self.paths = node.create_publisher(Path, '/plan', 1)
+        self.profiles = node.create_publisher(PathProfile, '/plan/profile', 1)
         sensors = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.odometry = node.create_publisher(Odometry, '/odom', sensors)
         self.clock = node.create_publisher(Clock, '/clock', 1) if simulated_clock else None
@@ -268,6 +270,11 @@ def test_simulated_clock_pause_wall_watchdog_publishes_zero(node):
     ['-p', 'q_lateral:=-1.0'],
     ['-p', 'riccati_max_iterations:=1'],
     ['-p', 'diagnostic_log_period_sec:=0.0'],
+    ['-p', 'linear_deceleration:=0.0'],
+    ['-p', 'feedforward_angular_fraction:=1.0'],
+    ['-p', 'reference_heading_tolerance:=2.0'],
+    ['-p', 'max_reference_curvature:=-1.0'],
+    ['-p', 'profile_topic:=/plan'],
     ['-p', 'allow_odom_fallback:=true'],
     ['-p', 'raw_cmd_topic:=/cmd_vel'],
     ['-r', '/cmd_vel_raw:=/diff_drive_controller/cmd_vel_unstamped'],
@@ -276,3 +283,66 @@ def test_invalid_model_frames_or_base_output_rejected(node, override):
     result = subprocess.run(command(*override), capture_output=True, timeout=8.0)
     assert result.returncode != 0
     assert 'Startup failed' in (result.stdout + result.stderr).decode()
+
+
+def straight_profile(path):
+    message = PathProfile()
+    message.path = path
+    message.tangent_yaw = [0.0] * len(path.poses)
+    message.curvature = [0.0] * len(path.poses)
+    message.stop_required = [False] * len(path.poses)
+    if path.poses:
+        message.stop_required[-1] = True
+    return message
+
+
+def test_continuous_profile_exact_pairing_invalid_arrays_and_publisher_loss(node):
+    with running(command('-p', 'require_path_profile:=true')):
+        h = Harness(node)
+        path = path_message()
+        h.send_path(path)
+        h.wait('WAIT_PATH_PROFILE')
+        wrong = straight_profile(path_message())
+        wrong.path.header.stamp.sec = 2
+        h.profiles.publish(wrong)
+        h.wait('WAIT_PATH_PROFILE')
+        h.profiles.publish(straight_profile(path))
+        h.wait('TRACKING', nonzero=True)
+        replacement = path_message(points=((0.0, 0.0), (2.0, 0.0)))
+        h.send_path(replacement)  # Same stamp, different geometry must not pair.
+        h.wait('WAIT_PATH_PROFILE')
+        invalid = straight_profile(replacement)
+        invalid.curvature = []
+        h.profiles.publish(invalid)
+        h.wait('PATH_PROFILE_INVALID')
+        h.profiles.publish(straight_profile(replacement))
+        h.wait('TRACKING', nonzero=True)
+        node.destroy_publisher(h.profiles)
+        h.wait('PATH_UNAVAILABLE')
+
+
+def test_profile_can_arrive_before_path_and_circular_samples_do_not_stop(node):
+    with running(command('-p', 'require_path_profile:=true')):
+        h = Harness(node)
+        radius = 0.4
+        points = [(radius * math.sin(i * math.pi / 40),
+                   radius * (1.0 - math.cos(i * math.pi / 40))) for i in range(21)]
+        points.append((radius, radius + 1.0))
+        path = path_message(points=points)
+        profile = PathProfile()
+        profile.path = path
+        profile.tangent_yaw = [i * math.pi / 40 for i in range(21)] + [math.pi / 2]
+        profile.curvature = [1.0 / radius] * 20 + [0.0, 0.0]
+        profile.stop_required = [False] * 21 + [True]
+        h.profiles.publish(profile)
+        settle(node)
+        h.wait('WAIT_PATH_PROFILE')
+        h.send_path(path)
+        h.wait('TRACKING', nonzero=True)
+        for theta in (0.1, 0.3, 0.6, 0.9, 1.2, 1.4):
+            h.pose = [radius * math.sin(theta), radius * (1.0 - math.cos(theta)), theta]
+            h.actual = [0.08, 0.2]
+            settle(node)
+            h.wait('TRACKING', nonzero=True)
+            assert h.commands[-1].linear.x > 0.0
+            assert h.commands[-1].angular.z > 0.0

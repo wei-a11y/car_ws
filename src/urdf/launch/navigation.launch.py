@@ -27,9 +27,12 @@ def generate_launch_description():
         DeclareLaunchArgument('amcl_params_file', default_value=str(share / 'config/amcl.yaml')),
         DeclareLaunchArgument('navigation_params_file',
                              default_value=str(share / 'config/navigation_baseline.yaml')),
+        DeclareLaunchArgument('planner_params_file', default_value=str(plan / 'config/astar.yaml')),
+        DeclareLaunchArgument('lqr_params_file',
+                             default_value=str(controller / 'config/lqr_tracker.yaml')),
         DeclareLaunchArgument('enable', default_value='true',
                              description='false inhibits commands; never bypasses Safety Gate'),
-        DeclareLaunchArgument('controller_type',default_value='dwa',
+        DeclareLaunchArgument('controller_type',default_value='lqr',
                               description='Controller selection: dwa or lqr'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel',
                              description='Override with a debug topic for isolated testing'),
@@ -53,7 +56,7 @@ def generate_launch_description():
         Node(package='plan', executable='planning_grid_node', name='planning_grid',
              output='screen', parameters=[str(plan / 'config/planning_grid.yaml'), config]),
         Node(package='plan', executable='astar_node', name='planner', output='screen',
-             parameters=[str(plan / 'config/astar.yaml'), config]),
+             parameters=[LaunchConfiguration('planner_params_file'), config]),
 
      Node(
      package='controller',
@@ -84,7 +87,7 @@ def generate_launch_description():
           ])
      ),
      parameters=[
-          str(controller / 'config/lqr_tracker.yaml'),
+          LaunchConfiguration('lqr_params_file'),
           config,
      ]
      ),
