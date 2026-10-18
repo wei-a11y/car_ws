@@ -50,37 +50,6 @@ double heuristic(Cell from, Cell goal, double resolution)
   return (std::max(dx, dy) + (std::sqrt(2.0) - 1.0) * std::min(dx, dy)) * resolution;
 }
 
-// double obstacle_penalty(const PlanningGrid & grid, std::size_t x, std::size_t y)
-// {
-//   const auto & meta = grid.geometry();
-//   const auto & inflated = grid.inflated_grid();
-//   const int radius = 6;
-//   double nearest_blocked = std::numeric_limits<double>::infinity();
-//   for (int dy = -radius; dy <= radius; ++dy) {
-//     const int cell_y = static_cast<int>(y) + dy;
-//     if (cell_y < 0 || static_cast<std::size_t>(cell_y) >= meta.height) {
-//       continue;
-//     }
-//     for (int dx = -radius; dx <= radius; ++dx) {
-//       const int cell_x = static_cast<int>(x) + dx;
-//       if (cell_x < 0 || static_cast<std::size_t>(cell_x) >= meta.width) {
-//         continue;
-//       }
-//       if (inflated[static_cast<std::size_t>(cell_y) * meta.width +
-//         static_cast<std::size_t>(cell_x)] == 100)
-//       {
-//         const double distance = std::hypot(static_cast<double>(dx), static_cast<double>(dy));
-//         nearest_blocked = std::min(nearest_blocked, distance);
-//       }
-//     }
-//   }
-//   if (!std::isfinite(nearest_blocked)) {
-//     return 0.0;
-//   }
-//   const double safe_band = 6.0;
-//   const double risk = std::max(0.0, safe_band - nearest_blocked);
-//   return risk * 7.0 * meta.resolution;
-// }
 }  // namespace
 
 PlanResult astar_search(const PlanningGrid * grid, Cell start, Cell goal)
@@ -145,10 +114,8 @@ PlanResult astar_search(const PlanningGrid * grid, Cell start, Cell goal)
       if (diagonal && (grid->is_blocked(next.x, from.y) || grid->is_blocked(from.x, next.y))) {
         continue;
       }
-      const double candidate = meta.resolution * (diagonal ? std::sqrt(2.0) : 1.0);
-      // const double step_cost = meta.resolution * (diagonal ? std::sqrt(2.0) : 1.0);
-      // const double risk_cost = obstacle_penalty(*grid, next.x, next.y);
-      // const double candidate = current.g + step_cost + risk_cost;
+      const double candidate = current.g +
+        meta.resolution * (diagonal ? std::sqrt(2.0) : 1.0);
       if (candidate < costs[id]) {
         costs[id] = candidate;
         parents[id] = current.index;

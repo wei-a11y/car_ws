@@ -2,6 +2,8 @@ lqr_controller:
   ros__parameters:
     use_sim_time: true
     path_topic: /plan
+    profile_topic: /plan/profile
+    require_path_profile: true  # exact pairing; missing/mismatched metadata always stops
     raw_cmd_topic: /cmd_vel_raw
     status_topic: /controller/lqr/status
     debug_topic: /controller/lqr/debug
@@ -29,13 +31,23 @@ lqr_controller:
     slowdown_gain: 1.0  # 1/s: v_ref = min(v_nominal, gain * distance to next stop)
     align_gain: 1.5
     heading_tolerance: 0.05
-    align_trigger: 0.35
+    align_trigger: 0.35  # legacy XY-only mode; continuous recovery uses tracking_align_trigger
     goal_position_tolerance: 0.03
     stopped_linear_tolerance: 0.01
     stopped_angular_tolerance: 0.02
     # Conservative initial error budget; must be checked against inflation/localization uncertainty.
     max_tracking_error: 0.03
     max_path_points: 100000
+    # Continuous curve tracking. v_nominal above remains 0.15 m/s on straight sections.
+    linear_acceleration: 0.10  # m/s^2: acceleration after starts/stops and bends
+    linear_deceleration: 0.15  # m/s^2: backward braking envelope before curves/stops
+    angular_acceleration: 1.0  # rad/s^2: tracking command slew; safety stops override it
+    lateral_acceleration: 0.04  # m/s^2: v <= sqrt(a_lat / abs(curvature))
+    feedforward_angular_fraction: 0.75  # reserve 25 percent of w_max for feedback
+    feedforward_preview_distance: 0.02  # metres, never crosses a required stop
+    tracking_align_trigger: 1.0  # rad; large-error recovery only, not normal arc vertices
+    max_reference_curvature: 20.0  # 1/m; reject invalid profile geometry above this value
+    reference_heading_tolerance: 0.20  # rad; validate tangents against the associated Path
     tf_timeout_sec: 0.01
     tf_max_age_sec: 0.5
     odom_max_age_sec: 0.25

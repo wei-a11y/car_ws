@@ -21,6 +21,9 @@ struct PathPoint2D
   double x;
   double y;
   double yaw;
+  double tangent_yaw = 0.0;
+  double curvature = 0.0;  // outgoing primitive; signed 1/metre
+  bool stop_required = false;
 };
 
 struct PathProcessingConfig
@@ -29,16 +32,38 @@ struct PathProcessingConfig
   double resample_spacing;  // metres along the polyline
   std::size_t shortcut_max_lookahead;  // bounds the greedy search work
   std::size_t max_output_points;
+  bool enable_arc_smoothing = false;
+  double arc_radius = 0.35;  // preferred radius in metres
+  double arc_min_radius = 0.20;
+  std::size_t arc_radius_samples = 6;  // includes preferred/space-limited and minimum radii
+  double arc_max_deviation = 0.001;  // maximum arc-to-chord distance, metres
+  double arc_max_angle = 0.10;  // maximum angle between arc samples, radians
+  double arc_radius_max = 0.0;  // zero keeps the preferred radius as the upper bound
+  double arc_radius_weight = 1.0;
+  double arc_curvature_weight = 0.04;
+  bool recover_shortcut_corners = true;
+  double retained_corner_cost = 2.0;  // equivalent metres per required stop
+};
+
+struct PathProcessingStats
+{
+  std::size_t rounded_corners = 0;
+  std::size_t retained_corners = 0;
+  std::size_t space_limited_corners = 0;
+  std::size_t collision_limited_corners = 0;
+  bool shortcut_recovered = false;
 };
 
 void validate_path_processing_config(const PathProcessingConfig & config);
 // Conservative supercover: blocked/outside cells touched at edges/corners also reject the line.
 bool line_of_sight(const PlanningGrid & grid, Point2D from, Point2D to);
 // Throws on invalid/colliding input or resource limits. Empty input produces empty output.
-// Preserves endpoints and bends in addition to uniform arc-length samples: no corner chords.
+// Preserves endpoints. Optional tangent arcs replace only collision-validated bends;
+// unsuitable bends remain available for stop/align tracking. No timed trajectory is produced.
+// Arc vertices and retained bends are kept in addition to uniform polyline arc-length samples.
 // Last yaw follows the final segment; a singleton uses yaw=0 (no tangent is available).
 std::vector<PathPoint2D> process_path(
   const PlanningGrid & grid, const std::vector<Point2D> & raw,
-  const PathProcessingConfig & config);
+  const PathProcessingConfig & config, PathProcessingStats * stats = nullptr);
 }  // namespace plan
 #endif  // PLAN__PATH_PROCESSING_HPP_

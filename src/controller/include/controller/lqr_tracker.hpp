@@ -12,6 +12,11 @@ namespace controller
 struct Point2D {double x; double y;};
 struct Pose2D {double x; double y; double yaw;};
 struct Velocity2D {double v; double w;};
+struct ReferencePoint
+{
+  double x, y, yaw, curvature;
+  bool stop_required;
+};
 
 struct TrackerConfig
 {
@@ -36,6 +41,15 @@ struct TrackerConfig
   double stopped_angular_tolerance;
   double max_tracking_error;
   std::size_t max_path_points;
+  double linear_acceleration = 0.10;
+  double linear_deceleration = 0.15;
+  double angular_acceleration = 1.0;
+  double lateral_acceleration = 0.04;
+  double feedforward_angular_fraction = 0.75;
+  double feedforward_preview_distance = 0.02;
+  double tracking_align_trigger = 1.0;
+  double max_reference_curvature = 20.0;
+  double reference_heading_tolerance = 0.20;
 };
 
 struct DiscreteModel
@@ -73,6 +87,8 @@ struct TrackerDiagnostics
   double length = 0.0, projected = 0.0;
   double nearest_distance = 0.0, endpoint_distance = 0.0;
   double lateral_error = 0.0, heading_error = 0.0;
+  double reference_curvature = 0.0, feedforward_angular = 0.0;
+  std::size_t next_stop_index = 0;
 };
 
 struct TrackerResult
@@ -84,12 +100,15 @@ struct TrackerResult
   double progress = 0.0;
   double remaining = 0.0;  // to the next mandatory stop, not necessarily the final endpoint
   double reference_speed = 0.0;
+  double reference_curvature = 0.0;
+  double feedforward_angular = 0.0;
   Point2D nearest{0.0, 0.0};
   Point2D lookahead{0.0, 0.0};
   TrackerDiagnostics diagnostics;
 };
 
-// ROS-independent, forward-only tracker. Every real bend is a mandatory stop/align point.
+// ROS-independent, forward-only tracker. Explicit profiles stop only at flagged points;
+// the legacy XY-only API conservatively stops at every real bend.
 // TRACKING_ERROR and GOAL_REACHED latch zero until a new path. External data freshness is the
 // wrapper's responsibility; this core uses actual velocity only for stop/alignment confirmation.
 class LqrTracker
@@ -97,6 +116,8 @@ class LqrTracker
 public:
   explicit LqrTracker(TrackerConfig config);
   void set_path(const std::vector<Point2D> & path);  // invalid input clears the old path, then throws
+  // Explicit profile: ordinary arc vertices pass continuously; only flagged points stop.
+  void set_profile(const std::vector<ReferencePoint> & path);
   void clear_path();
   bool has_path() const {return !points_.empty();}
   const std::array<double, 2> & gain() const {return gain_;}
@@ -104,6 +125,9 @@ public:
 
 private:
   struct Segment {Point2D start; Point2D end; double length; double yaw; double start_s;};
+  struct Sample {Point2D point; double yaw, curvature; std::size_t segment;};
+  Sample reference_at(double s) const;
+  TrackerResult step_continuous(Pose2D pose, Velocity2D actual);
   TrackerConfig config_;
   std::array<double, 2> gain_;
   std::vector<Point2D> points_;
@@ -114,6 +138,11 @@ private:
   bool fault_ = false;
   bool reached_ = false;
   TrackerDiagnostics fault_diagnostics_;  // retain the FIRST fault until clear_path
+  bool continuous_ = false;
+  std::vector<ReferencePoint> reference_;
+  std::vector<double> arc_lengths_, speed_limits_;
+  std::size_t phase_begin_ = 0, next_stop_ = 0;
+  double continuous_progress_ = 0.0;
 };
 }  // namespace controller
 #endif  // CONTROLLER__LQR_TRACKER_HPP_

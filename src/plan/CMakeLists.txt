@@ -16,6 +16,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
+find_package(common_msg REQUIRED)
 
 add_library(planning_grid_core src/planning_grid.cpp)
 target_compile_features(planning_grid_core PUBLIC cxx_std_17)
@@ -35,7 +36,7 @@ target_link_libraries(path_processing_core PUBLIC planning_grid_core)
 add_executable(astar_node src/astar_node.cpp)
 target_link_libraries(astar_node astar_core path_processing_core)
 ament_target_dependencies(astar_node
-  rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs
+  rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs common_msg
 )
 
 install(TARGETS planning_grid_core astar_core path_processing_core EXPORT planning_grid_coreTargets

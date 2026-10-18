@@ -13,6 +13,7 @@ planner:
     goal_topic: /goal_pose
     map_topic: /map
     path_topic: /plan
+    profile_topic: /plan/profile
     # Required deployment choice: no map frame/localization is confirmed yet.
     planning_frame: ""
     base_frame: base_footprint
@@ -24,6 +25,8 @@ planner:
 lqr_controller:
   ros__parameters:
     path_topic: /plan
+    profile_topic: /plan/profile
+    require_path_profile: true
     raw_cmd_topic: /cmd_vel_raw
     planning_frame: ""
     base_frame: base_footprint

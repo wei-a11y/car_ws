@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "controller/lqr_tracker.hpp"
+#include "common_msg/msg/path_profile.hpp"
 
 #include <array>
 #include <chrono>
@@ -93,6 +94,16 @@ private:
     c.stopped_angular_tolerance = parameter<double>("stopped_angular_tolerance");
     c.max_tracking_error = parameter<double>("max_tracking_error");
     c.max_path_points = count("max_path_points");
+    c.linear_acceleration = parameter<double>("linear_acceleration");
+    c.linear_deceleration = parameter<double>("linear_deceleration");
+    c.angular_acceleration = parameter<double>("angular_acceleration");
+    c.lateral_acceleration = parameter<double>("lateral_acceleration");
+    c.feedforward_angular_fraction = parameter<double>("feedforward_angular_fraction");
+    c.feedforward_preview_distance = parameter<double>("feedforward_preview_distance");
+    c.tracking_align_trigger = parameter<double>("tracking_align_trigger");
+    c.max_reference_curvature = parameter<double>("max_reference_curvature");
+    c.reference_heading_tolerance = parameter<double>("reference_heading_tolerance");
+    require_profile_ = parameter<bool>("require_path_profile");
     return c;
   }
 
@@ -140,6 +151,9 @@ private:
     path_sub_ = create_subscription<nav_msgs::msg::Path>(
       topic("path_topic"), qos,
       [this](nav_msgs::msg::Path::ConstSharedPtr message) {on_path(*message);});
+    profile_sub_ = create_subscription<common_msg::msg::PathProfile>(
+      topic("profile_topic"), qos,
+      [this](common_msg::msg::PathProfile::ConstSharedPtr message) {on_profile(*message);});
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       topic("odom_topic"), rclcpp::SensorDataQoS().keep_last(5),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr message) {on_odom(*message);});
@@ -152,8 +166,9 @@ private:
     if (output == "/cmd_vel" || output == "/diff_drive_controller/cmd_vel_unstamped") {
       throw std::invalid_argument("LQR output must be a separate raw topic, never the base command");
     }
-    const std::array<std::string, 5> topics = {output, status_pub_->get_topic_name(),
-      debug_pub_->get_topic_name(), path_sub_->get_topic_name(), odom_sub_->get_topic_name()};
+    const std::array<std::string, 6> topics = {output, status_pub_->get_topic_name(),
+      debug_pub_->get_topic_name(), path_sub_->get_topic_name(), odom_sub_->get_topic_name(),
+      profile_sub_->get_topic_name()};
     for (std::size_t i = 0; i < topics.size(); ++i) {
       for (std::size_t j = i + 1; j < topics.size(); ++j) {
         if (topics[i] == topics[j]) {
@@ -262,7 +277,10 @@ private:
          << " actual_v=" << d.actual.v << " stop_v_limit=" << c.stopped_linear_tolerance
          << " actual_w=" << d.actual.w << " stop_w_limit=" << c.stopped_angular_tolerance
          << " heading_tolerance=" << c.heading_tolerance
-         << " cmd_v=" << result.command.v << " cmd_w=" << result.command.w;
+         << " cmd_v=" << result.command.v << " cmd_w=" << result.command.w
+         << " curvature=" << result.reference_curvature
+         << " w_feedforward=" << result.feedforward_angular
+         << " next_stop_index=" << d.next_stop_index;
     return text.str();
   }
 
@@ -275,6 +293,7 @@ private:
   void on_path(const nav_msgs::msg::Path & message)
   {
     tracker_->clear_path();
+    pending_path_.reset();
     path_error_ = "PATH_INVALID";
     command({0.0, 0.0});  // A replacement or rejection may never retain the previous command.
     try {
@@ -306,6 +325,15 @@ private:
         }
         points.push_back({pose.pose.position.x, pose.pose.position.y});
       }
+      if (require_profile_) {
+        if (points.empty()) {
+          path_error_ = "PATH_UNAVAILABLE";
+          return;
+        }
+        pending_path_ = message;
+        accept_profile();
+        return;
+      }
       tracker_->set_path(points);
       path_error_ = "PATH_UNAVAILABLE";
       status(
@@ -314,6 +342,64 @@ private:
         " points; progress reset, no Path age timeout");
     } catch (const std::exception & error) {
       stop(path_error_, "stage=PATH_ACCEPTANCE " + std::string(error.what()));
+    }
+  }
+
+  void on_profile(const common_msg::msg::PathProfile & message)
+  {
+    if (!require_profile_) {
+      return;
+    }
+    tracker_->clear_path();
+    command({0.0, 0.0});
+    const auto n = message.path.poses.size();
+    if (n == 0) {
+      pending_profile_.reset();
+      path_error_ = "PATH_UNAVAILABLE";
+      stop(path_error_, "stage=PATH_PROFILE empty profile clears motion");
+      return;
+    }
+    if (n > tracker_config_.max_path_points || message.curvature.size() != n ||
+      message.tangent_yaw.size() != n || message.stop_required.size() != n)
+    {
+      pending_profile_.reset();
+      stop("PATH_PROFILE_INVALID", "stage=PATH_PROFILE invalid array sizes or point limit");
+      path_error_ = "PATH_PROFILE_INVALID";
+      return;
+    }
+    pending_profile_ = message;
+    accept_profile();
+  }
+
+  void accept_profile()
+  {
+    path_error_ = "WAIT_PATH_PROFILE";
+    if (!pending_path_ || !pending_profile_ || pending_profile_->path != *pending_path_) {
+      stop(path_error_, "stage=PATH_PROFILE waiting for an exactly matching Path/profile pair");
+      return;
+    }
+    const auto & profile = *pending_profile_;
+    const auto n = profile.path.poses.size();
+    try {
+      if (profile.tangent_yaw.size() != n || profile.curvature.size() != n ||
+        profile.stop_required.size() != n)
+      {
+        throw std::invalid_argument("Profile array lengths differ from associated Path");
+      }
+      std::vector<ReferencePoint> reference;
+      for (std::size_t i = 0; i < n; ++i) {
+        const auto & point = profile.path.poses[i].pose.position;
+        reference.push_back(
+          {point.x, point.y, profile.tangent_yaw[i], profile.curvature[i],
+            static_cast<bool>(profile.stop_required[i])});
+      }
+      tracker_->set_profile(reference);
+      path_error_ = "PATH_UNAVAILABLE";
+      status("PATH_ACCEPTED", "Exact Path/profile pair accepted for continuous tracking");
+    } catch (const std::exception & error) {
+      tracker_->clear_path();
+      path_error_ = "PATH_PROFILE_INVALID";
+      stop(path_error_, "stage=PATH_PROFILE " + std::string(error.what()));
     }
   }
 
@@ -435,8 +521,18 @@ private:
     }
     if (path_sub_->get_publisher_count() == 0) {
       tracker_->clear_path();
+      pending_path_.reset();
+      pending_profile_.reset();
       path_error_ = "PATH_UNAVAILABLE";
       stop(path_error_, "stage=PATH_PUBLISHER reason=PUBLISHER_DISAPPEARED new Path required");
+      return;
+    }
+    if (require_profile_ && profile_sub_->get_publisher_count() == 0) {
+      tracker_->clear_path();
+      pending_path_.reset();
+      pending_profile_.reset();
+      path_error_ = "PATH_UNAVAILABLE";
+      stop(path_error_, "stage=PROFILE_PUBLISHER publisher disappeared; new pair required");
       return;
     }
     if (!odom_ || !fresh(odom_->header.stamp, odom_max_age_, time)) {
@@ -465,6 +561,9 @@ private:
   std::string base_;
   std::string odom_frame_;
   TrackerConfig tracker_config_{};
+  bool require_profile_ = true;
+  std::optional<nav_msgs::msg::Path> pending_path_;
+  std::optional<common_msg::msg::PathProfile> pending_profile_;
   double diagnostic_period_;
   double period_;
   double tf_timeout_;
@@ -491,6 +590,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr debug_pub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
+  rclcpp::Subscription<common_msg::msg::PathProfile>::SharedPtr profile_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr watchdog_;

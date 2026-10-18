@@ -46,20 +46,18 @@ TEST(AStar, SameCellReturnsOnePointAndZeroCost)
   EXPECT_DOUBLE_EQ(result.total_cost, 0.0);
 }
 
-TEST(AStar, NearObstacleCellsAddPenaltyToTotalCost)
+TEST(AStar, NearbyObstaclesDoNotAddUnconfiguredPenalty)
 {
-  const std::vector<std::int8_t> cells = {
-    0, 0, 0, 0, 0,
-    0, 0, 100, 0, 0,
-    0, 0, 0, 0, 0,
-    0, 0, 100, 0, 0,
-    0, 0, 0, 0, 0,
-  };
-  const auto map = grid(5, 5, cells);
+  const auto map = grid(
+    5, 5, {
+      0, 0, 0, 0, 0,
+      0, 0, 100, 0, 0,
+      0, 0, 0, 0, 0,
+      0, 0, 100, 0, 0,
+      0, 0, 0, 0, 0});
   const auto result = plan::astar_search(&map, {0, 2}, {4, 2});
   ASSERT_EQ(result.status, plan::PlanStatus::SUCCESS);
-  EXPECT_GT(result.total_cost, 2.0);
-  EXPECT_LT(result.total_cost, 8.0);
+  EXPECT_DOUBLE_EQ(result.total_cost, 2.0);
 }
 
 TEST(AStar, BothOrthogonalNeighboursMustBeFree)
@@ -70,7 +68,7 @@ TEST(AStar, BothOrthogonalNeighboursMustBeFree)
   const auto result = plan::astar_search(&one_wall, {0, 0}, {1, 1});
   ASSERT_EQ(result.status, plan::PlanStatus::SUCCESS);
   EXPECT_EQ(result.cells.size(), 3U);
-  EXPECT_GT(result.total_cost, 1.0);
+  EXPECT_DOUBLE_EQ(result.total_cost, 1.0);  // Two orthogonal 0.5 m steps, no risk penalty.
 }
 
 TEST(AStar, InvalidEndpointsAreDistinguished)
@@ -118,38 +116,6 @@ TEST(AStar, RotatedGridProducesCorrectWorldCellCentres)
   EXPECT_NEAR(point.second, -1.75, 1e-12);
 }
 
-double obstacle_penalty_reference(const plan::PlanningGrid & map, std::size_t x, std::size_t y)
-{
-  const auto & meta = map.geometry();
-  const auto & inflated = map.inflated_grid();
-  const int radius = 2;
-  double nearest_blocked = std::numeric_limits<double>::infinity();
-  for (int dy = -radius; dy <= radius; ++dy) {
-    const int cell_y = static_cast<int>(y) + dy;
-    if (cell_y < 0 || static_cast<std::size_t>(cell_y) >= meta.height) {
-      continue;
-    }
-    for (int dx = -radius; dx <= radius; ++dx) {
-      const int cell_x = static_cast<int>(x) + dx;
-      if (cell_x < 0 || static_cast<std::size_t>(cell_x) >= meta.width) {
-        continue;
-      }
-      if (inflated[static_cast<std::size_t>(cell_y) * meta.width +
-        static_cast<std::size_t>(cell_x)] == 100)
-      {
-        nearest_blocked = std::min(nearest_blocked, std::hypot(static_cast<double>(dx),
-          static_cast<double>(dy)));
-      }
-    }
-  }
-  if (!std::isfinite(nearest_blocked)) {
-    return 0.0;
-  }
-  const double safe_band = 2.0;
-  const double risk = std::max(0.0, safe_band - nearest_blocked);
-  return risk * 1.5 * meta.resolution;
-}
-
 // Dense O(V^2) Dijkstra, independent of A*'s priority queue and heuristic.
 double reference_cost(const plan::PlanningGrid & map)
 {
@@ -181,7 +147,7 @@ double reference_cost(const plan::PlanningGrid & map)
         continue;
       }
       const double step = meta.resolution * std::hypot(dx, dy);
-      cost[next] = std::min(cost[next], cost[best] + step + obstacle_penalty_reference(map, nx, ny));
+      cost[next] = std::min(cost[next], cost[best] + step);
     }
   }
   return cost.back();
@@ -205,6 +171,9 @@ TEST(AStar, OptimalityAndLegalStepsMatchIndependentDijkstra)
     }
     ASSERT_EQ(result.status, plan::PlanStatus::SUCCESS);
     EXPECT_NEAR(result.total_cost, expected, 1e-12);
+    ASSERT_EQ(result.cells.front(), (plan::Cell{0, 0}));
+    ASSERT_EQ(result.cells.back(), (plan::Cell{7, 5}));
+    double reconstructed_cost = 0.0;
     for (std::size_t i = 1; i < result.cells.size(); ++i) {
       const auto & a = result.cells[i - 1];
       const auto & b = result.cells[i];
@@ -214,11 +183,13 @@ TEST(AStar, OptimalityAndLegalStepsMatchIndependentDijkstra)
       EXPECT_LE(dx, 1.0);
       EXPECT_LE(dy, 1.0);
       EXPECT_GT(dx + dy, 0.0);
+      reconstructed_cost += map.geometry().resolution * std::hypot(dx, dy);
       if (dx != 0.0 && dy != 0.0) {
         EXPECT_FALSE(map.is_blocked(b.x, a.y));
         EXPECT_FALSE(map.is_blocked(a.x, b.y));
       }
     }
+    EXPECT_NEAR(reconstructed_cost, result.total_cost, 1e-12);
   }
 }
 }  // namespace

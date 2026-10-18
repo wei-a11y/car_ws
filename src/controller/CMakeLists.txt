@@ -16,6 +16,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
+find_package(common_msg REQUIRED)
 
 
 # ============================================================
@@ -25,6 +26,7 @@ find_package(rcl_interfaces REQUIRED)
 add_library(
   lqr_tracker_core
   src/lqr_tracker.cpp
+  src/lqr_continuous.cpp
 )
 
 target_compile_features(
@@ -53,6 +55,7 @@ target_link_libraries(
 ament_target_dependencies(
   lqr_tracker_node
   rclcpp
+  common_msg
   rcl_interfaces
   geometry_msgs
   nav_msgs
@@ -206,6 +209,11 @@ if(BUILD_TESTING)
 
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
+  find_package(plan REQUIRED)
+
+  ament_add_gtest(test_continuous_tracking test/test_continuous_tracking.cpp)
+  target_link_libraries(test_continuous_tracking lqr_tracker_core plan::path_processing_core)
+  ament_target_dependencies(test_continuous_tracking plan)
 
   ament_add_gtest(
     test_lqr_tracker
