@@ -312,9 +312,49 @@ def test_processing_limit_failure_clears_both_outputs(node):
     'post_processing.resample_spacing:=0.0',
     'post_processing.shortcut_max_lookahead:=0',
     'post_processing.max_output_points:=0',
+    'post_processing.arc_radius:=0.1',
+    'post_processing.arc_min_radius:=0.0',
+    'post_processing.arc_radius_samples:=1',
+    'post_processing.arc_radius_samples:=-2',
+    'post_processing.arc_radius_samples:=1001',
+    'post_processing.arc_max_deviation:=0.0',
+    'post_processing.arc_max_angle:=2.0',
     'raw_path_topic:=/plan',
 ])
 def test_invalid_processing_config_or_aliased_output_rejected(node, override):
     result = subprocess.run(command('-p', override), capture_output=True, timeout=8.0)
     assert result.returncode != 0
     assert 'Startup failed' in (result.stdout + result.stderr).decode()
+
+
+@pytest.mark.parametrize('smoothing', [False, True])
+def test_arc_smoothing_changes_geometry_and_preserves_interfaces(node, smoothing):
+    with running(command('-p', 'post_processing.enable_shortcut:=false',
+                         '-p', 'post_processing.resample_spacing:=0.5',
+                         '-p', f'post_processing.enable_arc_smoothing:={str(smoothing).lower()}')):
+        harness = Harness(node)
+        msg = map_message()
+        msg.data[4 * 9 + 4] = 100
+        harness.send_map(msg)
+        broadcaster = StaticTransformBroadcaster(node)
+        broadcaster.sendTransform(transform('base_footprint', 1.5, 1.5))
+        settle(node)
+        path = harness.request('SUCCESS')
+        raw = harness.raw_paths[-1]
+
+        def distance_to_raw(point):
+            distances = []
+            for first, last in zip(raw.poses, raw.poses[1:]):
+                a, b = first.pose.position, last.pose.position
+                dx, dy = b.x - a.x, b.y - a.y
+                projection = ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy)
+                ratio = max(0.0, min(1.0, projection))
+                distances.append(math.hypot(point.x - a.x - ratio * dx,
+                                            point.y - a.y - ratio * dy))
+            return min(distances)
+
+        # Disabled mode stays on the raw polyline; enabled mode actually rounds bends.
+        deviations = [distance_to_raw(p.pose.position) for p in path.poses]
+        assert (max(deviations) > 0.002) == smoothing
+        for a, b in zip(path.poses, path.poses[1:]):
+            assert segment_free(msg, a.pose.position, b.pose.position)

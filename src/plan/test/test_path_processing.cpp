@@ -264,4 +264,241 @@ TEST(PathProcessing, RandomAStarPathsRemainCollisionFreeAndNeverGrowInLength)
   }
   EXPECT_GT(successful, 20);
 }
+
+plan::PathProcessingConfig arc_config(double radius = 0.6, double minimum = 0.2)
+{
+  auto value = config(false, 0.1);
+  value.enable_arc_smoothing = true;
+  value.arc_radius = radius;
+  value.arc_min_radius = minimum;
+  return value;
+}
+
+TEST(PathProcessing, LeftAndRightFilletsAreTangentAndRespectRadiusAndDeviation)
+{
+  const auto grid = make_grid();
+  for (double sign : {-1.0, 1.0}) {
+    const double y = sign > 0.0 ? 1.5 : 5.5;
+    const std::vector<plan::Point2D> raw{{1.5, y}, {5.5, y}, {5.5, y + sign * 4.0}};
+    const auto cfg = arc_config();
+    plan::PathProcessingStats stats;
+    const auto path = plan::process_path(grid, raw, cfg, &stats);
+    EXPECT_EQ(stats.rounded_corners, 1U);
+    EXPECT_EQ(stats.retained_corners, 0U);
+    EXPECT_FALSE(contains(path, 5.5, y));
+    EXPECT_TRUE(contains(path, 4.9, y));  // Incoming tangency point.
+    EXPECT_TRUE(contains(path, 5.5, y + sign * 0.6));  // Outgoing tangency point.
+    EXPECT_DOUBLE_EQ(path.front().x, raw.front().x);
+    EXPECT_DOUBLE_EQ(path.back().y, raw.back().y);
+    for (std::size_t i = 1; i < path.size(); ++i) {
+      const auto a = path[i - 1], b = path[i];
+      EXPECT_TRUE(reference_visible(grid, {a.x, a.y}, {b.x, b.y}));
+      EXPECT_LE(std::hypot(b.x - a.x, b.y - a.y), cfg.resample_spacing + 1e-12);
+      if (b.x > 4.9 && sign * (b.y - y) < 0.6) {
+        const double radius = std::hypot(b.x - 4.9, b.y - (y + sign * 0.6));
+        EXPECT_NEAR(radius, 0.6, cfg.arc_max_deviation + 1e-12);
+      }
+      if (i + 1 < path.size()) {
+        const double change = std::remainder(path[i].yaw - path[i - 1].yaw, 2.0 * std::acos(-1.0));
+        EXPECT_LE(std::abs(change), cfg.arc_max_angle + 1e-10);
+      }
+    }
+  }
+}
+
+TEST(PathProcessing, CollisionSearchShrinksRadiusButNeverBelowMinimum)
+{
+  std::vector<std::int8_t> cells(64, 0);
+  cells[2 * 8 + 4] = 100;
+  const auto grid = make_grid(cells);
+  const std::vector<plan::Point2D> raw{{0.5, 1.5}, {5.5, 1.5}, {5.5, 7.5}};
+  plan::PathProcessingStats stats;
+  const auto path = plan::process_path(grid, raw, arc_config(3.0, 0.5), &stats);
+  ASSERT_EQ(stats.rounded_corners, 1U);
+  EXPECT_EQ(stats.retained_corners, 0U);
+  EXPECT_FALSE(contains(path, 5.5, 1.5));
+  double entry_x = 0.0;
+  for (const auto & point : path) {
+    if (std::abs(point.y - 1.5) < 1e-12) {
+      entry_x = point.x;
+    }
+  }
+  EXPECT_LT(5.5 - entry_x, 3.0);
+  EXPECT_GE(5.5 - entry_x, 0.5 - 1e-12);
+  for (std::size_t i = 1; i < path.size(); ++i) {
+    EXPECT_TRUE(
+      reference_visible(
+        grid, {path[i - 1].x, path[i - 1].y}, {path[i].x, path[i].y}));
+  }
+
+  const auto fallback = plan::process_path(grid, raw, arc_config(3.0, 3.0), &stats);
+  EXPECT_EQ(stats.rounded_corners, 0U);
+  EXPECT_EQ(stats.retained_corners, 1U);
+  EXPECT_TRUE(contains(fallback, 5.5, 1.5));
+}
+
+TEST(PathProcessing, ShortSegmentsAndReversalsRetainStopCorners)
+{
+  const auto grid = make_grid();
+  plan::PathProcessingStats stats;
+  const auto short_path = plan::process_path(
+    grid, {{1.5, 1.5}, {3.5, 1.5}, {3.5, 2.0}, {5.5, 2.0}}, arc_config(0.6, 0.6), &stats);
+  EXPECT_EQ(stats.rounded_corners, 0U);
+  EXPECT_EQ(stats.retained_corners, 2U);
+  EXPECT_TRUE(contains(short_path, 3.5, 1.5));
+  EXPECT_TRUE(contains(short_path, 3.5, 2.0));
+  const auto reverse = plan::process_path(
+    grid, {{1.5, 1.5}, {3.5, 1.5}, {1.5, 1.5}}, arc_config(), &stats);
+  EXPECT_EQ(stats.rounded_corners, 0U);
+  EXPECT_EQ(stats.retained_corners, 1U);
+  EXPECT_TRUE(contains(reverse, 3.5, 1.5));
+}
+
+TEST(PathProcessing, AdjacentFilletsShareSegmentWithoutOverlapOrDuplicatePoints)
+{
+  const auto grid = make_grid();
+  plan::PathProcessingStats stats;
+  const auto path = plan::process_path(
+    grid, {{0.5, 0.5}, {3.5, 0.5}, {3.5, 1.5}, {6.5, 1.5}}, arc_config(1.0), &stats);
+  EXPECT_EQ(stats.rounded_corners, 2U);
+  EXPECT_EQ(stats.retained_corners, 0U);
+  EXPECT_TRUE(contains(path, 3.5, 1.0));
+  for (std::size_t i = 1; i < path.size(); ++i) {
+    EXPECT_GT(std::hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y), 1e-12);
+    EXPECT_LE(path[i - 1].x, path[i].x + 1e-12);
+    EXPECT_LE(path[i - 1].y, path[i].y + 1e-12);
+  }
+}
+
+TEST(PathProcessing, SafeAndUnsafeCornersCanCoexistInOnePath)
+{
+  const auto grid = make_grid();
+  plan::PathProcessingStats stats;
+  const auto path = plan::process_path(
+    grid, {{0.5, 0.5}, {3.5, 0.5}, {3.5, 4.5}, {3.8, 4.5}}, arc_config(0.6, 0.4), &stats);
+  EXPECT_EQ(stats.rounded_corners, 1U);
+  EXPECT_EQ(stats.retained_corners, 1U);
+  EXPECT_FALSE(contains(path, 3.5, 0.5));
+  EXPECT_TRUE(contains(path, 3.5, 4.5));
+}
+
+TEST(PathProcessing, ContinuousArcCollisionIsRejectedEvenWhenEveryOutputChordWouldBeFree)
+{
+  // A tiny obstacle intersects the first arc's midpoint, outside the four-chord polygon.
+  const double resolution = 0.0002;
+  const double angle = -std::acos(-1.0) / 2.0 + std::acos(-1.0) / 16.0;
+  const plan::Point2D hit{0.13 + 0.05 * std::cos(angle), 0.07 + 0.05 * std::sin(angle)};
+  std::vector<std::int8_t> cells(1000000, 0);
+  cells[static_cast<std::size_t>(hit.y / resolution) * 1000 +
+    static_cast<std::size_t>(hit.x / resolution)] = 100;
+  const auto grid = plan::PlanningGrid::from_inflated_grid(
+    {1000, 1000, resolution, 0.0, 0.0, 0.0}, std::move(cells), 1000000);
+  const plan::Point2D first{0.13, 0.02};
+  const plan::Point2D next{
+    0.13 + 0.05 * std::cos(-std::acos(-1.0) / 2.0 + std::acos(-1.0) / 8.0),
+    0.07 + 0.05 * std::sin(-std::acos(-1.0) / 2.0 + std::acos(-1.0) / 8.0)};
+  ASSERT_TRUE(plan::line_of_sight(grid, first, next));
+  ASSERT_FALSE(plan::line_of_sight(grid, hit, hit));
+  auto cfg = arc_config(0.05, 0.05);
+  cfg.resample_spacing = 0.1;
+  cfg.arc_max_angle = 0.5;
+  cfg.arc_max_deviation = 0.01;
+  plan::PathProcessingStats stats;
+  const auto path = plan::process_path(
+    grid, {{0.02, 0.02}, {0.18, 0.02}, {0.18, 0.18}}, cfg, &stats);
+  EXPECT_EQ(stats.rounded_corners, 0U);
+  EXPECT_EQ(stats.retained_corners, 1U);
+  EXPECT_TRUE(contains(path, 0.18, 0.02));
+}
+
+TEST(PathProcessing, FilletsRespectRotatedMapGeometryAndMapBoundary)
+{
+  const auto grid = plan::PlanningGrid::from_inflated_grid(
+    {8, 8, 0.5, 10.0, -3.0, std::acos(-1.0) / 2.0}, std::vector<std::int8_t>(64, 0), 1000);
+  plan::PathProcessingStats stats;
+  const auto path = plan::process_path(
+    grid, {{9.25, -2.25}, {9.25, -0.25}, {7.25, -0.25}}, arc_config(), &stats);
+  EXPECT_EQ(stats.rounded_corners, 1U);
+  EXPECT_NEAR(path.front().yaw, std::acos(-1.0) / 2.0, 1e-12);
+  EXPECT_NEAR(path.back().yaw, std::acos(-1.0), 1e-12);
+  for (std::size_t i = 1; i < path.size(); ++i) {
+    EXPECT_TRUE(
+      plan::line_of_sight(
+        grid, {path[i - 1].x, path[i - 1].y}, {path[i].x, path[i].y}));
+  }
+  EXPECT_THROW(
+    plan::process_path(grid, {{10.0, -3.0}, {9.0, -2.0}, {9.0, -1.0}}, arc_config()),
+    std::invalid_argument);
+}
+
+TEST(PathProcessing, ArcConfigAndResourceLimitsAreValidated)
+{
+  const auto grid = make_grid();
+  const std::vector<plan::Point2D> raw{{1.5, 1.5}, {5.5, 1.5}, {5.5, 5.5}};
+  for (int invalid = 0; invalid < 8; ++invalid) {
+    auto cfg = arc_config();
+    switch (invalid) {
+      case 0: cfg.arc_radius = 0.1; break;
+      case 1: cfg.arc_min_radius = 0.0; break;
+      case 2: cfg.arc_max_deviation = 0.0; break;
+      case 3: cfg.arc_max_angle = 2.0; break;
+      case 4: cfg.arc_radius_samples = 1; break;
+      case 5: cfg.arc_radius_samples = 1001; break;
+      case 6: cfg.arc_radius = std::numeric_limits<double>::infinity(); break;
+      case 7: cfg.arc_max_angle = std::numeric_limits<double>::quiet_NaN(); break;
+    }
+    EXPECT_THROW(plan::process_path(grid, raw, cfg), std::invalid_argument);
+  }
+  auto cfg = arc_config();
+  cfg.max_output_points = 10;
+  EXPECT_THROW(plan::process_path(grid, raw, cfg), std::length_error);
+  plan::PathProcessingStats stats{10, 10};
+  EXPECT_TRUE(plan::process_path(grid, {}, arc_config(), &stats).empty());
+  EXPECT_EQ(stats.rounded_corners, 0U);
+  EXPECT_EQ(stats.retained_corners, 0U);
+}
+
+TEST(PathProcessing, RandomSmoothedAStarPathsStayFreeAndDoNotGrow)
+{
+  std::mt19937 random(962);
+  std::size_t rounded = 0;
+  int successful = 0;
+  for (int trial = 0; trial < 100; ++trial) {
+    std::vector<std::int8_t> cells(64, 0);
+    for (auto & cell : cells) {
+      cell = random() % 8 == 0 ? 100 : 0;
+    }
+    cells.front() = cells.back() = 0;
+    const auto grid = make_grid(cells);
+    const auto search = plan::astar_search(&grid, {0, 0}, {7, 7});
+    if (search.status != plan::PlanStatus::SUCCESS) {
+      continue;
+    }
+    ++successful;
+    std::vector<plan::Point2D> raw;
+    for (const auto & cell : search.cells) {
+      const auto point = grid.cell_to_world(cell.x, cell.y);
+      raw.push_back({point.first, point.second});
+    }
+    auto cfg = arc_config();
+    cfg.enable_shortcut = true;
+    plan::PathProcessingStats stats;
+    const auto path = plan::process_path(grid, raw, cfg, &stats);
+    rounded += stats.rounded_corners;
+    double length = 0.0;
+    for (std::size_t i = 1; i < path.size(); ++i) {
+      const auto a = path[i - 1], b = path[i];
+      EXPECT_TRUE(reference_visible(grid, {a.x, a.y}, {b.x, b.y}));
+      const double step = std::hypot(b.x - a.x, b.y - a.y);
+      EXPECT_GT(step, 0.0);
+      EXPECT_LE(step, cfg.resample_spacing + 1e-12);
+      length += step;
+    }
+    EXPECT_LE(length, search.total_cost + 1e-10);
+    EXPECT_DOUBLE_EQ(path.front().x, raw.front().x);
+    EXPECT_DOUBLE_EQ(path.back().y, raw.back().y);
+  }
+  EXPECT_GT(successful, 20);
+  EXPECT_GT(rounded, 0U);
+}
 }  // namespace

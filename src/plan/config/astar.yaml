@@ -17,3 +17,9 @@ planner:
       resample_spacing: 0.1  # metres; bends/endpoints are additionally retained
       shortcut_max_lookahead: 200  # simplified vertices; bounds greedy shortcut work
       max_output_points: 100000
+      enable_arc_smoothing: true
+      arc_radius: 0.35  # preferred radius, metres; limited by neighbouring segment lengths
+      arc_min_radius: 0.20  # do not shrink below this; retain the corner if no candidate is safe
+      arc_radius_samples: 6  # bounded search, including both radius limits; range [2, 1000]
+      arc_max_deviation: 0.001  # metres; also used for conservative continuous-arc checking
+      arc_max_angle: 0.10  # radians between arc samples; keeps low-speed bends visibly smooth

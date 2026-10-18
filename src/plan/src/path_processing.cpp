@@ -47,6 +47,150 @@ bool collinear_forward(Point2D a, Point2D b, Point2D c)
   return std::isfinite(scale) && std::abs(ux * vy - uy * vx) <= roundoff(1.0) * scale &&
          ux * vx + uy * vy > 0.0;
 }
+
+double distance(Point2D a, Point2D b)
+{
+  return std::hypot(b.x - a.x, b.y - a.y);
+}
+
+// Test a closed line segment against a closed axis-aligned box (slab method).
+bool intersects_box(Point2D a, Point2D b, double x0, double y0, double x1, double y1)
+{
+  double enter = 0.0, leave = 1.0;
+  const auto slab = [&enter, &leave](double start, double end, double low, double high) {
+      const double delta = end - start;
+      if (delta == 0.0) {
+        return start >= low && start <= high;
+      }
+      double first = (low - start) / delta, last = (high - start) / delta;
+      if (first > last) {
+        std::swap(first, last);
+      }
+      enter = std::max(enter, first);
+      leave = std::min(leave, last);
+      return enter <= leave;
+    };
+  return slab(a.x, b.x, x0, x1) && slab(a.y, b.y, y0, y1);
+}
+
+bool arc_chord_is_free(const PlanningGrid & grid, Point2D from, Point2D to, double sagitta)
+{
+  const auto & geometry = grid.geometry();
+  const auto a = grid_coordinates(geometry, from), b = grid_coordinates(geometry, to);
+  // The entire minor arc is within sagitta of its chord. Expanding closed cell boxes
+  // by that bound rejects both chord and continuous-arc collisions, including touches.
+  // This is a discretization-error envelope, not a second robot-radius inflation.
+  const double scale = std::max({std::abs(a.x), std::abs(a.y), std::abs(b.x), std::abs(b.y)});
+  const double padding = sagitta / geometry.resolution + roundoff(scale);
+  const double x0 = std::min(a.x, b.x) - padding, x1 = std::max(a.x, b.x) + padding;
+  const double y0 = std::min(a.y, b.y) - padding, y1 = std::max(a.y, b.y) + padding;
+  if (!std::isfinite(x0) || !std::isfinite(x1) || !std::isfinite(y0) || !std::isfinite(y1) ||
+    x0 <= 0.0 || y0 <= 0.0 || x1 >= geometry.width || y1 >= geometry.height)
+  {
+    return false;
+  }
+  for (auto y = static_cast<std::size_t>(std::floor(y0)); y <= std::floor(y1); ++y) {
+    for (auto x = static_cast<std::size_t>(std::floor(x0)); x <= std::floor(x1); ++x) {
+      if (grid.is_blocked(x, y) && intersects_box(
+          a, b, x - padding, y - padding, x + 1.0 + padding, y + 1.0 + padding))
+      {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+std::vector<Point2D> round_corners(
+  const PlanningGrid & grid, const std::vector<Point2D> & points,
+  const PathProcessingConfig & config, PathProcessingStats & stats)
+{
+  if (points.size() < 3 || !config.enable_arc_smoothing) {
+    stats.retained_corners = points.size() < 3 ? 0 : points.size() - 2;
+    return points;
+  }
+  std::vector<Point2D> rounded;
+  const auto append = [&rounded, &config](Point2D point) {
+      if (!rounded.empty()) {
+        const auto last = rounded.back();
+        const double scale = std::max(
+          {std::abs(last.x), std::abs(last.y), std::abs(point.x), std::abs(point.y)});
+        if (distance(last, point) <= roundoff(scale)) {
+          return;
+        }
+      }
+      if (rounded.size() >= config.max_output_points) {
+        throw std::length_error("Rounded path exceeds max_output_points");
+      }
+      rounded.push_back(point);
+    };
+  append(points.front());
+  for (std::size_t i = 1; i + 1 < points.size(); ++i) {
+    const auto a = points[i - 1], b = points[i], c = points[i + 1];
+    const double incoming = distance(a, b), outgoing = distance(b, c);
+    const Point2D u{(b.x - a.x) / incoming, (b.y - a.y) / incoming};
+    const Point2D v{(c.x - b.x) / outgoing, (c.y - b.y) / outgoing};
+    const double turn = std::atan2(u.x * v.y - u.y * v.x, u.x * v.x + u.y * v.y);
+    const double tangent_factor = std::tan(std::abs(turn) / 2.0);
+    // Reserve half of each shared segment for the neighbouring fillet. End segments
+    // have only one bend and may use their full length. Thus fillets cannot overlap.
+    const double available = std::min(
+      incoming * (i == 1 ? 1.0 : 0.5), outgoing * (i + 2 == points.size() ? 1.0 : 0.5));
+    const double upper = std::min(config.arc_radius, available / tangent_factor);
+    bool accepted = false;
+    if (std::abs(turn) > roundoff(1.0) && std::isfinite(tangent_factor) &&
+      tangent_factor > 0.0 && upper >= config.arc_min_radius)
+    {
+      const auto trials = upper == config.arc_min_radius ? 1 : config.arc_radius_samples;
+      for (std::size_t trial = 0; trial < trials; ++trial) {
+        const double ratio = static_cast<double>(trial) / (config.arc_radius_samples - 1);
+        const double radius = (1.0 - ratio) * upper + ratio * config.arc_min_radius;
+        const double trim = radius * tangent_factor;
+        const Point2D entry{b.x - trim * u.x, b.y - trim * u.y};
+        const Point2D exit{b.x + trim * v.x, b.y + trim * v.y};
+        const double sign = turn > 0.0 ? 1.0 : -1.0;
+        const Point2D centre{entry.x - sign * radius * u.y, entry.y + sign * radius * u.x};
+        const double start_angle = std::atan2(entry.y - centre.y, entry.x - centre.x);
+        // Stable inversion of sagitta = 2*r*sin(delta/4)^2; keep every chord a minor arc.
+        const double deviation_angle = 4.0 * std::asin(
+          std::sqrt(std::min(0.5, config.arc_max_deviation / radius / 2.0)));
+        const double step = std::min(
+          {config.arc_max_angle, deviation_angle, config.resample_spacing / radius});
+        const double count = std::ceil(std::abs(turn) / step);
+        if (!std::isfinite(count) || count + 1.0 > config.max_output_points) {
+          throw std::length_error("Arc sampling exceeds max_output_points");
+        }
+        const auto segments = static_cast<std::size_t>(count);
+        const double delta = turn / segments;
+        const double sagitta = 2.0 * radius * std::pow(std::sin(delta / 4.0), 2);
+        std::vector<Point2D> arc{entry};
+        bool free = line_of_sight(grid, rounded.back(), entry);
+        for (std::size_t j = 1; free && j <= segments; ++j) {
+          const double angle = start_angle + delta * j;
+          const Point2D point = j == segments ? exit : Point2D{
+            centre.x + radius * std::cos(angle), centre.y + radius * std::sin(angle)};
+          free = arc_chord_is_free(grid, arc.back(), point, sagitta);
+          arc.push_back(point);
+        }
+        if (free && line_of_sight(grid, exit, c)) {
+          for (const auto & point : arc) {
+            append(point);
+          }
+          ++stats.rounded_corners;
+          accepted = true;
+          break;
+        }
+      }
+    }
+    if (!accepted) {
+      append(b);
+      ++stats.retained_corners;
+    }
+  }
+  append(points.back());
+  rounded.back() = points.back();  // Preserve the exact endpoint even after roundoff deduplication.
+  return rounded;
+}
 }  // namespace
 
 void validate_path_processing_config(const PathProcessingConfig & config)
@@ -55,6 +199,15 @@ void validate_path_processing_config(const PathProcessingConfig & config)
     config.shortcut_max_lookahead == 0 || config.max_output_points == 0)
   {
     throw std::invalid_argument("Path spacing must be finite/positive and limits must be positive");
+  }
+  if (!std::isfinite(config.arc_radius) || !std::isfinite(config.arc_min_radius) ||
+    !std::isfinite(config.arc_max_deviation) || !std::isfinite(config.arc_max_angle) ||
+    config.arc_min_radius <= 0.0 || config.arc_radius < config.arc_min_radius ||
+    config.arc_max_deviation <= 0.0 || config.arc_max_angle <= 0.0 ||
+    config.arc_max_angle > std::acos(-1.0) / 2.0 ||
+    config.arc_radius_samples < 2 || config.arc_radius_samples > 1000)
+  {
+    throw std::invalid_argument("Invalid arc radii, sampling limits or discretization bounds");
   }
 }
 
@@ -120,9 +273,13 @@ bool line_of_sight(const PlanningGrid & grid, Point2D from, Point2D to)
 
 std::vector<PathPoint2D> process_path(
   const PlanningGrid & grid, const std::vector<Point2D> & raw,
-  const PathProcessingConfig & config)
+  const PathProcessingConfig & config, PathProcessingStats * stats)
 {
   validate_path_processing_config(config);
+  PathProcessingStats processing_stats;
+  if (stats != nullptr) {
+    *stats = processing_stats;
+  }
   std::vector<Point2D> simplified;
   for (std::size_t i = 0; i < raw.size(); ++i) {
     if (!line_of_sight(grid, i == 0 ? raw[i] : raw[i - 1], raw[i])) {
@@ -157,6 +314,7 @@ std::vector<PathPoint2D> process_path(
     }
     simplified = std::move(shortened);
   }
+  simplified = round_corners(grid, simplified, config, processing_stats);
   double total_length = 0.0;
   for (std::size_t i = 1; i < simplified.size(); ++i) {
     total_length += std::hypot(
@@ -195,7 +353,7 @@ std::vector<PathPoint2D> process_path(
     if (std::abs(next_sample - end) <= roundoff(end)) {
       ++sample_index;
     }
-    // A bend is mandatory: connecting samples on either side would create a new corner chord.
+    // Retain bends and arc vertices: no new chord may bypass collision-checked geometry.
     append(b);
     travelled = end;
   }
@@ -208,6 +366,9 @@ std::vector<PathPoint2D> process_path(
     } else if (i > 0) {
       output[i].yaw = output[i - 1].yaw;
     }
+  }
+  if (stats != nullptr) {
+    *stats = processing_stats;
   }
   return output;
 }

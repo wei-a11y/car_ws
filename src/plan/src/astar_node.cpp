@@ -53,6 +53,18 @@ public:
       read_parameter<bool>("post_processing.enable_shortcut"),
       read_parameter<double>("post_processing.resample_spacing"),
       static_cast<std::size_t>(lookahead), static_cast<std::size_t>(output_limit)};
+    processing_config_.enable_arc_smoothing =
+      read_parameter<bool>("post_processing.enable_arc_smoothing");
+    processing_config_.arc_radius = read_parameter<double>("post_processing.arc_radius");
+    processing_config_.arc_min_radius = read_parameter<double>("post_processing.arc_min_radius");
+    const auto radius_samples = read_parameter<std::int64_t>("post_processing.arc_radius_samples");
+    if (radius_samples < 2) {
+      throw std::invalid_argument("Arc radius samples must be at least two");
+    }
+    processing_config_.arc_radius_samples = static_cast<std::size_t>(radius_samples);
+    processing_config_.arc_max_deviation =
+      read_parameter<double>("post_processing.arc_max_deviation");
+    processing_config_.arc_max_angle = read_parameter<double>("post_processing.arc_max_angle");
     validate_path_processing_config(processing_config_);
     const auto map_topic = read_parameter<std::string>("inflated_grid_topic");
     const auto goal_topic = read_parameter<std::string>("goal_topic");
@@ -237,7 +249,9 @@ private:
         pose.pose.orientation.w = std::cos(yaw / 2.0);
         raw_path.poses.push_back(pose);
       }
-      const auto processed = process_path(*grid_, raw_points, processing_config_);
+      PathProcessingStats processing_stats;
+      const auto processed =
+        process_path(*grid_, raw_points, processing_config_, &processing_stats);
       nav_msgs::msg::Path path;
       path.header = raw_path.header;
       path.poses.reserve(processed.size());
@@ -257,7 +271,9 @@ private:
       publish_status(
         PlanStatus::SUCCESS, "Published " + std::to_string(path.poses.size()) +
         " processed points from " + std::to_string(raw_path.poses.size()) +
-        " raw cells; A* cost=" + std::to_string(result.total_cost) + " m");
+        " raw cells; A* cost=" + std::to_string(result.total_cost) + " m; rounded corners=" +
+        std::to_string(processing_stats.rounded_corners) + "; retained corners=" +
+        std::to_string(processing_stats.retained_corners));
     } catch (const tf2::TransformException & error) {
       fail(PlanStatus::TF_UNAVAILABLE, error.what());
     } catch (const std::exception & error) {

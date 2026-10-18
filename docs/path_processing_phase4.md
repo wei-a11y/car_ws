@@ -1,5 +1,10 @@
 # Phase 4：轻量 Path Post-processing
 
+本页记录初始 Phase 4 的折线处理行为。当前代码在 shortcut 后增加了默认开启的
+局部相切圆弧过渡；参数、碰撞检查、拐点回退及验证命令见
+[局部圆弧路径平滑](path_arc_smoothing.md)。关闭 `post_processing.enable_arc_smoothing`
+可恢复本页描述的折线行为。
+
 ## 数据流与接口
 
 `Phase 2 inflated grid + TF start + PoseStamped goal -> A* -> 去重/去共线 -> 可选 LOS shortcut -> 弧长重采样 -> yaw -> Path`
