@@ -195,6 +195,10 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS scripts/record_path_tracking.py scripts/analyze_path_tracking.py
+  DESTINATION lib/${PROJECT_NAME})
+install(FILES scripts/tracking_analysis.py DESTINATION lib/${PROJECT_NAME})
+
 ament_export_targets(
   controller_targets
   HAS_LIBRARY_TARGET
@@ -210,6 +214,10 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(plan REQUIRED)
+
+  ament_add_pytest_test(test_tracking_analysis test/test_tracking_analysis.py)
+  ament_add_pytest_test(test_path_recorder test/test_path_recorder.py TIMEOUT 30
+    ENV "ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/recorder_ros_logs" "ROS_LOCALHOST_ONLY=1")
 
   ament_add_gtest(test_continuous_tracking test/test_continuous_tracking.cpp)
   target_link_libraries(test_continuous_tracking lqr_tracker_core plan::path_processing_core)

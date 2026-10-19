@@ -9,7 +9,7 @@
 
 namespace controller
 {
-void LqrTracker::set_profile(const std::vector<ReferencePoint> & path)
+void LqrTracker::set_profile(const std::vector<ReferencePoint> & path, bool continuous_curvature)
 {
   clear_path();
   if (path.empty()) {
@@ -19,7 +19,10 @@ void LqrTracker::set_profile(const std::vector<ReferencePoint> & path)
     throw std::invalid_argument("Profile exceeds point limit or has no terminal stop");
   }
   std::vector<Segment> segments;
-  std::vector<double> lengths(path.size(), 0.0), limits(path.size(), config_.v_nominal);
+  std::vector<double> lengths(path.size(), 0.0), limits(path.size(), config_.v_max);
+  std::vector<double> acceleration(path.size(), config_.linear_acceleration);
+  std::vector<double> deceleration(path.size(), config_.linear_deceleration);
+  std::vector<double> segment_limits(path.size(), config_.v_max);
   std::vector<Point2D> points;
   for (std::size_t i = 0; i < path.size(); ++i) {
     const auto & point = path[i];
@@ -57,18 +60,37 @@ void LqrTracker::set_profile(const std::vector<ReferencePoint> & path)
       throw std::invalid_argument("Reference tangents disagree with Path or duplicate points");
     }
     segments.push_back({points[i - 1], points[i], length, yaw, lengths[i - 1]});
+    const double peak = std::max(std::abs(path[i - 1].curvature), std::abs(point.curvature));
+    const double budget = config_.angular_acceleration_fraction * config_.angular_acceleration;
+    if (peak > 0.0) {
+      acceleration[i] = std::min(acceleration[i], budget / (2.0 * peak));
+      deceleration[i] = std::min(deceleration[i], budget / (2.0 * peak));
+    }
+    if (continuous_curvature && !point.stop_required) {
+      const double rate = std::abs(point.curvature - path[i - 1].curvature) / length;
+      if (rate > 0.0) {
+        const double cap = std::sqrt(budget / (2.0 * rate));
+        limits[i - 1] = std::min(limits[i - 1], cap);
+        limits[i] = std::min(limits[i], cap);
+        segment_limits[i] = cap;
+      }
+    }
   }
   // Backward braking envelope incorporates every future curve and mandatory stop.
   for (std::size_t i = path.size() - 1; i > 0; --i) {
     limits[i - 1] = std::min(
       limits[i - 1], std::sqrt(
-        limits[i] * limits[i] + 2.0 * config_.linear_deceleration * (lengths[i] - lengths[i - 1])));
+        limits[i] * limits[i] + 2.0 * deceleration[i] * (lengths[i] - lengths[i - 1])));
   }
   points_ = std::move(points);
   segments_ = std::move(segments);
   arc_lengths_ = std::move(lengths);
   speed_limits_ = std::move(limits);
   reference_ = path;
+  acceleration_limits_ = std::move(acceleration);
+  deceleration_limits_ = std::move(deceleration);
+  segment_speed_limits_ = std::move(segment_limits);
+  continuous_curvature_ = continuous_curvature;
   next_stop_ = 1;
   while (next_stop_ < path.size() && !path[next_stop_].stop_required) {
     ++next_stop_;
@@ -93,7 +115,10 @@ LqrTracker::Sample LqrTracker::reference_at(double s) const
     ratio * normalize_angle(end_yaw - reference_[index].yaw);
   return {{segment.start.x + ratio * (segment.end.x - segment.start.x),
     segment.start.y + ratio * (segment.end.y - segment.start.y)},
-    yaw, reference_[index].curvature, index};
+    yaw, continuous_curvature_ && !reference_[index + 1].stop_required ?
+    reference_[index].curvature + ratio *
+    (reference_[index + 1].curvature - reference_[index].curvature) :
+    reference_[index].curvature, index};
 }
 
 TrackerResult LqrTracker::step_continuous(Pose2D pose, Velocity2D actual)
@@ -236,32 +261,59 @@ TrackerResult LqrTracker::step_continuous(Pose2D pose, Velocity2D actual)
     0.0,
     arc_lengths_[preview_reference.segment + 1] - preview_s -
     std::max(0.0, actual.v) * config_.control_period);
-  double speed = std::min(
-    {config_.v_nominal, config_.slowdown_gain * result.remaining,
+  const double deceleration = deceleration_limits_[preview_reference.segment + 1];
+  double limit = std::min(
+    {config_.v_max, config_.slowdown_gain * result.remaining,
       std::sqrt(
         std::pow(speed_limits_[preview_reference.segment + 1], 2) +
-        2.0 * config_.linear_deceleration * end_distance)});
+        2.0 * deceleration * end_distance)});
+  // A long preview must not skip a tight bend between the current and preview points.
+  const double current_braking_distance = std::max(
+    0.0, arc_lengths_[reference.segment + 1] - best_s -
+    std::max(0.0, actual.v) * config_.control_period);
+  limit = std::min(
+    limit, std::sqrt(
+      std::pow(speed_limits_[reference.segment + 1], 2) +
+      2.0 * deceleration_limits_[reference.segment + 1] * current_braking_distance));
+  // Respect both endpoint caps, including curvature-rate limits within a transition.
+  limit = std::min(
+    limit, std::sqrt(
+      std::pow(speed_limits_[preview_reference.segment], 2) +
+      2.0 * acceleration_limits_[preview_reference.segment + 1] *
+      std::max(0.0, preview_s - arc_lengths_[preview_reference.segment])));
   const double curvature = preview_reference.curvature;
   const double limiting_curvature = std::max(std::abs(reference.curvature), std::abs(curvature));
+  limit = std::min(
+    {limit, segment_speed_limits_[reference.segment + 1],
+      segment_speed_limits_[preview_reference.segment + 1]});
   if (limiting_curvature > 0.0) {
-    speed = std::min(
-      {speed, config_.feedforward_angular_fraction * config_.w_max / limiting_curvature,
+    limit = std::min(
+      {limit, config_.feedforward_angular_fraction * config_.w_max / limiting_curvature,
         std::sqrt(config_.lateral_acceleration / limiting_curvature)});
   }
   result.state = TrackerState::TRACKING;
+  const double speed = std::min(config_.v_nominal, limit);
   result.reference_speed = speed;
-  result.command.v = std::clamp(
-    std::min(
-      speed,
-      std::max(
-        0.0,
-        actual.v) + config_.linear_acceleration * config_.control_period), 0.0,
-    config_.v_max);
+  result.command.v = speed_control(
+    speed, actual.v, limit, std::min(
+      acceleration_limits_[reference.segment + 1],
+      acceleration_limits_[preview_reference.segment + 1]),
+    std::min(deceleration_limits_[reference.segment + 1], deceleration));
   result.reference_curvature = d.reference_curvature = curvature;
   result.feedforward_angular = d.feedforward_angular = result.command.v * curvature;
+  // Precomputed speed schedule avoids a Riccati solve in every control callback.
+  const double range = config_.v_max - config_.gain_schedule_min_speed;
+  const double position = range > 0.0 ? std::clamp(
+    (result.command.v - config_.gain_schedule_min_speed) / range, 0.0, 1.0) *
+    (scheduled_gains_.size() - 1) : 0.0;
+  const auto bin = std::min(static_cast<std::size_t>(position), scheduled_gains_.size() - 2);
+  const double ratio = position - bin;
+  const std::array<double, 2> scheduled_gain{
+    (1.0 - ratio) * scheduled_gains_[bin][0] + ratio * scheduled_gains_[bin + 1][0],
+    (1.0 - ratio) * scheduled_gains_[bin][1] + ratio * scheduled_gains_[bin + 1][1]};
   const double angular = std::clamp(
-    result.feedforward_angular - gain_[0] * result.lateral_error -
-    gain_[1] * result.heading_error, -config_.w_max, config_.w_max);
+    result.feedforward_angular - scheduled_gain[0] * result.lateral_error -
+    scheduled_gain[1] * result.heading_error, -config_.w_max, config_.w_max);
   const double previous_angular = std::clamp(actual.w, -config_.w_max, config_.w_max);
   result.command.w = std::clamp(
     angular,

@@ -1,283 +1,207 @@
 #!/usr/bin/env python3
+# Copyright 2026 car_ws contributors
+# SPDX-License-Identifier: Apache-2.0
+"""Record synchronized controller snapshots, separated by process and planning epoch."""
 
 import csv
+from datetime import datetime
+import json
+import math
 from pathlib import Path
+import signal
 
+from common_msg.msg import PathProfile
+from nav_msgs.msg import Path as PathMsg
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from std_msgs.msg import Float64MultiArray, String
 
-from nav_msgs.msg import Path as PathMsg
-
-import tf2_ros
+from tracking_analysis import load_config
 
 
 class PathRecorder(Node):
+    """Record the exact TF pose and path progress used by the controller."""
 
     def __init__(self):
         super().__init__('path_recorder')
+        defaults = load_config()['path_recorder']['ros__parameters']
+        for key, value in defaults.items():
+            if not self.has_parameter(key):
+                self.declare_parameter(key, value)
 
-        # =========================
-        # 参数
-        # =========================
-        self.declare_parameter('plan_topic', '/plan')
-        self.declare_parameter('global_frame', 'map')
-        self.declare_parameter('base_frame', 'base_footprint')
-        self.declare_parameter('record_period', 0.05)
-        self.declare_parameter(
-            'output_dir',
-            'data/path_record'  # 相对于启动程序时的工作目录
-        )
+        def param(name):
+            return self.get_parameter(name).value
+        self.frame = param('global_frame')
+        self.flush_period = float(param('flush_period'))
+        if not self.frame or not math.isfinite(self.flush_period) or self.flush_period <= 0.0:
+            raise ValueError('global_frame and positive flush_period are required')
+        root = Path(param('output_dir')).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+        self.directory = root / datetime.now().strftime('run_%Y%m%d_%H%M%S_%f')
+        self.directory.mkdir()
+        self.epoch = 0
+        self.path = None
+        self.pending_profile = None
+        self.finished = False
+        self.seen_stamps = set()
+        self.epoch_dir = None
+        self.start = self.last_time = None
+        self.fp = self.writer = None
+        self.status = 'WAIT_PATH'
+        self.files = []
+        self.events_fp = self.open_csv(self.directory / 'events.csv')
+        self.events = csv.writer(self.events_fp)
+        self.events.writerow(['ros_time', 'epoch', 'event'])
+        self.create_subscription(PathMsg, param('plan_topic'), self.on_path, 10)
+        self.create_subscription(PathProfile, param('profile_topic'), self.on_profile, 10)
+        self.create_subscription(Float64MultiArray, param('tracking_topic'), self.on_tracking, 10)
+        qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.create_subscription(String, param('status_topic'), self.on_status, qos)
+        self.create_timer(self.flush_period, self.flush)
+        (self.directory / 'manifest.json').write_text(json.dumps({
+            'frame': self.frame, 'pose_source': 'controller TF localization estimate',
+            'epoch_policy': 'each received Path starts a separate comparison',
+            'parameters': {name: param(name) for name in defaults},
+        }, indent=2) + '\n')
+        self.get_logger().info(f'Tracking output: {self.directory}')
 
-        self.plan_topic = self.get_parameter(
-            'plan_topic'
-        ).value
+    def open_csv(self, path):
+        fp = path.open('w', newline='')
+        self.files.append(fp)
+        return fp
 
-        self.global_frame = self.get_parameter(
-            'global_frame'
-        ).value
+    def event(self, name):
+        self.events.writerow([self.get_clock().now().nanoseconds / 1e9, self.epoch, name])
 
-        self.base_frame = self.get_parameter(
-            'base_frame'
-        ).value
-
-        self.record_period = self.get_parameter(
-            'record_period'
-        ).value
-
-        self.output_dir = Path(
-            self.get_parameter('output_dir').value
-        )
-
-        self.output_dir.mkdir(
-            parents=True,
-            exist_ok=True
-        )
-
-        # =========================
-        # TF
-        # =========================
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(
-            self.tf_buffer,
-            self
-        )
-
-        # =========================
-        # 记录计划路径
-        # =========================
-        self.plan_sub = self.create_subscription(
-            PathMsg,
-            self.plan_topic,
-            self.plan_callback,
-            10
-        )
-
-        # =========================
-        # 文件
-        # =========================
-        self.plan_file = self.output_dir / 'planned_path.csv'
-        self.actual_file = self.output_dir / 'actual_path.csv'
-
-        self.plan_points = []
-
-        self.plan_received = False
-        self.start_time = None
-
-        # 创建 actual csv
-        self.actual_fp = open(
-            self.actual_file,
-            'w',
-            newline=''
-        )
-
-        self.actual_writer = csv.writer(self.actual_fp)
-
-        self.actual_writer.writerow([
-            'time',
-            'x',
-            'y',
-            'yaw'
-        ])
-
-        # =========================
-        # 定时记录实际轨迹
-        # =========================
-        self.timer = self.create_timer(
-            self.record_period,
-            self.record_actual_pose
-        )
-
-        self.get_logger().info(
-            'Path recorder started.'
-        )
-
-        self.get_logger().info(
-            f'Plan topic: {self.plan_topic}'
-        )
-
-        self.get_logger().info(
-            f'TF: {self.global_frame} -> {self.base_frame}'
-        )
-
-        self.get_logger().info(
-            f'Output: {self.output_dir}'
-        )
-
-    # =========================================================
-    # 接收 A* / Phase4 路径
-    # =========================================================
-
-    def plan_callback(self, msg):
-
-        if len(msg.poses) == 0:
+    def on_path(self, message):
+        self.flush()
+        if self.fp is not None:
+            self.fp.close()
+        self.fp = self.writer = None
+        self.start = self.last_time = None
+        self.path = None
+        self.finished = False
+        self.epoch += 1
+        if not message.poses:
+            self.event('PATH_CLEARED')
             return
+        if message.header.frame_id != self.frame or any(
+                p.header.frame_id != self.frame for p in message.poses):
+            self.event('PATH_FRAME_REJECTED')
+            return
+        stamp = (message.header.stamp.sec, message.header.stamp.nanosec)
+        if stamp in self.seen_stamps:
+            self.event('PATH_STAMP_REUSED_RECORDING_REJECTED')
+            return
+        self.seen_stamps.add(stamp)
+        self.path = message
+        self.epoch_dir = self.directory / f'path_{self.epoch:04d}'
+        self.epoch_dir.mkdir()
+        self.save_plan(self.pending_profile if self.pending_profile is not None and
+                       self.pending_profile.path == message else None)
+        self.fp = self.open_csv(self.epoch_dir / 'actual_path.csv')
+        self.writer = csv.DictWriter(self.fp, fieldnames=[
+            'time', 'ros_time', 'x', 'y', 'yaw', 'progress', 'lateral_error', 'heading_error',
+            'v_ref', 'v_cmd', 'w_cmd', 'v_actual', 'w_actual', 'curvature', 'w_ff',
+            'remaining', 'state', 'geometry_valid'])
+        self.writer.writeheader()
+        self.event('PATH_RECEIVED')
+        self.get_logger().info(f'New path epoch: {self.epoch_dir}')
 
-        self.plan_points = []
-
-        for pose_stamped in msg.poses:
-
-            x = pose_stamped.pose.position.x
-            y = pose_stamped.pose.position.y
-
-            self.plan_points.append((x, y))
-
-        # 每次收到新的 plan，就重新保存
-        with open(
-            self.plan_file,
-            'w',
-            newline=''
-        ) as fp:
-
+    def save_plan(self, profile=None):
+        with (self.epoch_dir / 'planned_path.csv').open('w', newline='') as fp:
             writer = csv.writer(fp)
+            writer.writerow(['index', 'x', 'y', 'yaw', 'curvature', 'stop_required'])
+            for i, p in enumerate(self.path.poses):
+                q = p.pose.orientation
+                yaw = math.atan2(2 * (q.w * q.z + q.x * q.y),
+                                 1 - 2 * (q.y * q.y + q.z * q.z))
+                writer.writerow([i, p.pose.position.x, p.pose.position.y,
+                                 profile.tangent_yaw[i] if profile else yaw,
+                                 profile.curvature[i] if profile else '',
+                                 int(profile.stop_required[i]) if profile else ''])
+        (self.epoch_dir / 'path.json').write_text(json.dumps({
+            'stamp_sec': self.path.header.stamp.sec,
+            'stamp_nanosec': self.path.header.stamp.nanosec,
+            'frame': self.frame, 'profile_received': profile is not None,
+            'curvature_continuous': bool(profile.curvature_continuous) if profile else False,
+        }, indent=2) + '\n')
 
-            writer.writerow([
-                'index',
-                'x',
-                'y'
-            ])
-
-            for i, (x, y) in enumerate(self.plan_points):
-
-                writer.writerow([
-                    i,
-                    x,
-                    y
-                ])
-
-        self.plan_received = True
-
-        self.get_logger().info(
-            f'Received plan: {len(self.plan_points)} points'
-        )
-
-    # =========================================================
-    # 记录实际机器人位置
-    # =========================================================
-
-    def record_actual_pose(self):
-
-        try:
-
-            transform = self.tf_buffer.lookup_transform(
-                self.global_frame,
-                self.base_frame,
-                rclpy.time.Time()
-            )
-
-        except Exception as e:
-
-            self.get_logger().warn(
-                f'TF lookup failed: {e}'
-            )
-
+    def on_profile(self, message):
+        n = len(message.path.poses)
+        if not all(len(v) == n for v in (
+                message.tangent_yaw, message.curvature, message.stop_required)):
             return
+        self.pending_profile = message
+        if self.path is None or message.path != self.path:
+            return
+        n = len(self.path.poses)
+        if all(len(v) == n for v in (
+                message.tangent_yaw, message.curvature, message.stop_required)):
+            self.save_plan(message)
 
-        now = self.get_clock().now()
+    def on_status(self, message):
+        if message.data != self.status:
+            self.status = message.data
+            self.event(self.status)
 
-        if self.start_time is None:
-            self.start_time = now
+    def on_tracking(self, message):
+        if self.path is None or self.writer is None or self.finished or not message.layout.dim:
+            return
+        values = dict(zip(message.layout.dim[0].label.split(','), message.data))
+        required = {'ey', 'etheta', 'progress', 'remaining', 'v_ref', 'v_cmd', 'w_cmd',
+                    'curvature', 'w_ff', 'v_actual', 'w_actual', 'pose_x', 'pose_y',
+                    'pose_yaw', 'ros_time', 'path_sec', 'path_nanosec', 'state', 'geometry_valid'}
+        if not required.issubset(values) or not all(math.isfinite(values[k]) for k in required):
+            return
+        stamp = self.path.header.stamp
+        if (values['path_sec'], values['path_nanosec']) != (stamp.sec, stamp.nanosec):
+            return
+        now = values['ros_time']
+        if self.last_time is not None and now <= self.last_time:
+            self.event('CLOCK_RESET_OR_DUPLICATE_SAMPLE')
+            self.path = None
+            return
+        if self.start is None:
+            self.start = now
+        self.last_time = now
+        row = {k: values[k] for k in (
+            'progress', 'remaining', 'v_ref', 'v_cmd', 'w_cmd',
+            'v_actual', 'w_actual', 'curvature', 'w_ff', 'state', 'geometry_valid')}
+        row.update(time=now - self.start, ros_time=now, x=values['pose_x'], y=values['pose_y'],
+                   yaw=values['pose_yaw'], lateral_error=values['ey'],
+                   heading_error=values['etheta'])
+        self.writer.writerow(row)
+        self.finished = int(values['state']) in (4, 5)
 
-        t = (
-            now.nanoseconds -
-            self.start_time.nanoseconds
-        ) / 1e9
-
-        x = transform.transform.translation.x
-        y = transform.transform.translation.y
-
-        q = transform.transform.rotation
-
-        yaw = self.quaternion_to_yaw(
-            q.x,
-            q.y,
-            q.z,
-            q.w
-        )
-
-        self.actual_writer.writerow([
-            f'{t:.6f}',
-            f'{x:.6f}',
-            f'{y:.6f}',
-            f'{yaw:.6f}'
-        ])
-
-        self.actual_fp.flush()
-
-    # =========================================================
-    # 四元数 -> yaw
-    # =========================================================
-
-    @staticmethod
-    def quaternion_to_yaw(x, y, z, w):
-
-        import math
-
-        siny_cosp = 2.0 * (
-            w * z + x * y
-        )
-
-        cosy_cosp = 1.0 - 2.0 * (
-            y * y + z * z
-        )
-
-        return math.atan2(
-            siny_cosp,
-            cosy_cosp
-        )
-
-    # =========================================================
-    # 关闭
-    # =========================================================
+    def flush(self):
+        for fp in self.files:
+            if not fp.closed:
+                fp.flush()
 
     def destroy_node(self):
-
-        self.get_logger().info(
-            'Saving recorded data...'
-        )
-
-        try:
-            self.actual_fp.close()
-        except Exception:
-            pass
-
+        self.flush()
+        for fp in self.files:
+            if not fp.closed:
+                fp.close()
         super().destroy_node()
 
 
 def main(args=None):
-
     rclpy.init(args=args)
-
     node = PathRecorder()
-
     try:
         rclpy.spin(node)
-
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
-
     finally:
+        # launch and a terminal can both deliver SIGINT; finish flushing once.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

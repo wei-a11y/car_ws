@@ -100,6 +100,7 @@ TEST(ContinuousTracking, BrakesBeforeTightCurveAndUsesCurvatureFeedforward)
   controller::LqrTracker tracker(cfg);
   tracker.set_profile(planned_curve(0.20));
   tracker.step({0.5, 1.5, 0.0}, {0.0, 0.0});  // Confirm initial alignment before testing motion.
+  tracker.reset_speed_control();  // This test teleports directly to measured cruise speed.
   const auto cruise = tracker.step({1.0, 1.5, 0.0}, {0.15, 0.0});
   EXPECT_NEAR(cruise.command.v, 0.15, 1e-12);
   const auto approach = tracker.step({2.28, 1.5, 0.0}, {0.15, 0.0});
@@ -160,3 +161,101 @@ TEST(ContinuousTracking, InvalidProfilesClearPreviousReference)
         {1.0, 0.0, 0.0, 0.0, true}}), std::invalid_argument);
 }
 }  // namespace
+
+TEST(SpeedPid, CompensatesPlantGainAndResetsWithoutIntegralWindup)
+{
+  auto cfg = curve_config();
+  cfg.max_tracking_error = 0.2;
+  controller::LqrTracker tracker(cfg);
+  const std::vector<controller::ReferencePoint> path{
+    {0.0, 0.0, 0.0, 0.0, false}, {100.0, 0.0, 0.0, 0.0, true}};
+  tracker.set_profile(path, true);
+  controller::Pose2D pose{0.0, 0.0, 0.0};
+  controller::Velocity2D actual{0.0, 0.0};
+  controller::TrackerResult r;
+  for (int i = 0; i < 1500; ++i) {
+    r = tracker.step(pose, actual);
+    ASSERT_EQ(r.state, controller::TrackerState::TRACKING);
+    // A lagging plant with 10 percent static velocity loss.
+    actual.v += 0.25 * (0.9 * r.command.v - actual.v);
+    pose.x += actual.v * cfg.control_period;
+  }
+  EXPECT_NEAR(actual.v, cfg.v_nominal, 0.001);
+  EXPECT_GT(r.command.v, cfg.v_nominal);
+  EXPECT_LE(r.command.v, cfg.v_max);
+  tracker.clear_path();
+  tracker.set_profile(path, true);
+  r = tracker.step({0.0, 0.0, 0.0}, {0.0, 0.0});
+  EXPECT_LE(r.command.v, cfg.linear_acceleration * cfg.control_period + 1e-12);
+}
+
+TEST(SpeedPid, SmoothTurnsWorkAtCurrentAndHigherCruiseSpeed)
+{
+  for (double cruise : {0.15, 0.35}) {
+    auto cfg = curve_config();
+    cfg.v_nominal = cruise;
+    cfg.v_max = cruise + 0.05;
+    cfg.max_tracking_error = 0.05;
+    const auto grid = plan::PlanningGrid::from_inflated_grid(
+      {100, 100, 0.05, 0.0, 0.0, 0.0}, std::vector<std::int8_t>(10000, 0), 10000);
+    plan::PathProcessingConfig pc{false, 0.1, 200, 100000};
+    pc.enable_arc_smoothing = pc.enable_curvature_transition = true;
+    pc.arc_radius = 0.5;
+    const auto processed = plan::process_path(
+      grid, {{0.5, 1.5}, {2.5, 1.5}, {2.5, 3.5}}, pc);
+    std::vector<controller::ReferencePoint> path;
+    for (const auto & p : processed) {
+      path.push_back({p.x, p.y, p.tangent_yaw, p.curvature, p.stop_required});
+    }
+    controller::LqrTracker tracker(cfg);
+    tracker.set_profile(path, true);
+    controller::Pose2D pose{path.front().x, path.front().y + 0.01, 0.0};
+    controller::Velocity2D actual{0.0, 0.0};
+    bool reached = false;
+    double maximum = 0.0, cruise_measured = 0.0;
+    for (int tick = 0; tick < 8000; ++tick) {
+      const auto r = tracker.step(pose, actual);
+      ASSERT_NE(r.state, controller::TrackerState::TRACKING_ERROR) << "tick=" << tick;
+      maximum = std::max(maximum, r.diagnostics.nearest_distance);
+      if (r.remaining > cfg.goal_position_tolerance + 0.01) {
+        ASSERT_EQ(r.state, controller::TrackerState::TRACKING);
+        EXPECT_GT(r.command.v, 0.0);
+      }
+      if (r.progress > 0.8 && r.progress < 1.1) {
+        cruise_measured = std::max(cruise_measured, actual.v);
+      }
+      actual.v += 0.5 * (r.command.v - actual.v);
+      actual.w += 0.5 * (r.command.w - actual.w);
+      pose.x += actual.v * std::cos(pose.yaw) * cfg.control_period;
+      pose.y += actual.v * std::sin(pose.yaw) * cfg.control_period;
+      pose.yaw = controller::normalize_angle(pose.yaw + actual.w * cfg.control_period);
+      if (r.state == controller::TrackerState::GOAL_REACHED) {
+        reached = true;
+        break;
+      }
+    }
+    EXPECT_TRUE(reached);
+    EXPECT_LT(maximum, cfg.max_tracking_error);
+    EXPECT_GT(cruise_measured, cruise * 0.95);
+  }
+}
+
+TEST(SpeedPid, InterpolatesCurvatureAndBrakesForCurvatureRate)
+{
+  auto cfg = curve_config();
+  cfg.v_nominal = 0.4;
+  cfg.v_max = 0.5;
+  cfg.nearest_forward_distance = 10.0;
+  controller::LqrTracker tracker(cfg);
+  tracker.set_profile(
+  {
+    {0.0, 0.0, 0.0, 0.0, false}, {.02, 0.0, .004, .4, false},
+    {.04, .00016, .016, .8, false}, {2.0, .03, .016, 0.0, true}}, true);
+  const auto r = tracker.step({.01, 0.0, 0.0}, {0.0, 0.0});
+  ASSERT_EQ(r.state, controller::TrackerState::TRACKING);
+  EXPECT_NEAR(r.reference_curvature, .6, .001);
+  const double rate_cap = std::sqrt(
+    cfg.angular_acceleration_fraction * cfg.angular_acceleration / (2.0 * 20.0));
+  EXPECT_LE(r.reference_speed, rate_cap + 1e-4);
+  EXPECT_NEAR(r.feedforward_angular, r.command.v * r.reference_curvature, 1e-12);
+}

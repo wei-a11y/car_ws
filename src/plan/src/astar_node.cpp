@@ -75,6 +75,20 @@ public:
       read_parameter<bool>("post_processing.recover_shortcut_corners");
     processing_config_.retained_corner_cost =
       read_parameter<double>("post_processing.retained_corner_cost");
+    processing_config_.enable_curvature_transition =
+      read_parameter<bool>("post_processing.enable_curvature_transition");
+    processing_config_.transition_length =
+      read_parameter<double>("post_processing.transition_length");
+    processing_config_.transition_min_length =
+      read_parameter<double>("post_processing.transition_min_length");
+    const auto transition_samples =
+      read_parameter<std::int64_t>("post_processing.transition_samples");
+    if (transition_samples < 2) {
+      throw std::invalid_argument("Transition samples must be at least two");
+    }
+    processing_config_.transition_samples = static_cast<std::size_t>(transition_samples);
+    processing_config_.max_curvature_rate =
+      read_parameter<double>("post_processing.max_curvature_rate");
     validate_path_processing_config(processing_config_);
     const auto map_topic = read_parameter<std::string>("inflated_grid_topic");
     const auto goal_topic = read_parameter<std::string>("goal_topic");
@@ -284,6 +298,7 @@ private:
       raw_path_pub_->publish(raw_path);
       common_msg::msg::PathProfile profile;
       profile.path = path;
+      profile.curvature_continuous = processing_config_.enable_curvature_transition;
       for (const auto & point : processed) {
         profile.tangent_yaw.push_back(point.tangent_yaw);
         profile.curvature.push_back(point.curvature);

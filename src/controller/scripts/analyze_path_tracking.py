@@ -1,426 +1,110 @@
 #!/usr/bin/env python3
+# Copyright 2026 car_ws contributors
+# SPDX-License-Identifier: Apache-2.0
+"""Three views: route overlay, signed lateral error, signed heading error."""
 
-import math
+import argparse
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+
+from tracking_analysis import load_config, save_summary, summarize
 
 
-# ============================================================
-# 点到线段距离
-# ============================================================
+def analyze(directory, config, show=False):
+    import matplotlib.pyplot as plt
 
-def point_to_segment_distance(px, py, ax, ay, bx, by):
+    planned = pd.read_csv(directory / 'planned_path.csv')
+    actual = pd.read_csv(directory / 'actual_path.csv')
+    valid, summary = summarize(planned, actual, config)
+    save_summary(directory / 'tracking_summary.json', summary)
+    valid.to_csv(directory / 'tracking_error.csv', index=False)
+    axis = config['error_axis']
+    if axis not in ('progress', 'time'):
+        raise ValueError('error_axis must be progress or time')
+    x = valid[axis].to_numpy()
+    xlabel = 'Path progress [m]' if axis == 'progress' else 'Simulation elapsed time [s]'
+    curve = np.abs(valid['curvature'].to_numpy()) >= config['curve_curvature_threshold']
+    fig, axes = plt.subplots(3, 1, figsize=tuple(config['figure_size']))
+    ax = axes[0]
+    ax.plot(planned['x'].to_numpy(), planned['y'].to_numpy(), '--', label='Processed reference')
+    ax.plot(actual['x'].to_numpy(), actual['y'].to_numpy(), linewidth=1, label='Tracked TF pose')
+    color = ax.scatter(valid['x'], valid['y'], c=np.abs(valid['lateral_error']),
+                       s=config['point_size'], cmap='viridis', vmin=0,
+                       vmax=config['lateral_error_threshold'])
+    fig.colorbar(color, ax=ax, label='Absolute lateral error [m]')
+    if 'stop_required' in planned:
+        stops = planned[planned['stop_required'].fillna(0) > 0]
+        ax.scatter(stops['x'], stops['y'], marker='x', color='red', label='Required stops / goal')
+    ax.scatter(planned['x'].iloc[0], planned['y'].iloc[0], marker='o', label='Start')
+    ax.set(xlabel='X [m]', ylabel='Y [m]', title=f'{directory.name}: whole-route tracking')
+    ax.set_aspect('equal', adjustable='datalim')
+    ax.legend(loc='best')
+    lateral_threshold = config['lateral_error_threshold']
+    heading_threshold = np.degrees(config['heading_error_threshold'])
+    for ax, values, threshold, label in (
+            (axes[1], valid['lateral_error'].to_numpy(), lateral_threshold, 'Lateral error [m]'),
+            (axes[2], np.degrees(valid['heading_error'].to_numpy()), heading_threshold,
+             'Heading error [deg]')):
+        ax.plot(x, values, linewidth=1)
+        ax.axhline(0, color='black', linewidth=0.5)
+        ax.axhline(threshold, linestyle='--', color='red', label='Allowed error')
+        ax.axhline(-threshold, linestyle='--', color='red')
+        ax.fill_between(x, 0, 1, where=curve, transform=ax.get_xaxis_transform(),
+                        color='orange', alpha=0.12, label='Curve region')
+        ax.set(xlabel=xlabel, ylabel=label)
+        extent = max(float(np.max(np.abs(values))), float(threshold))
+        ax.set_ylim(-extent * (1 + config['error_axis_margin']),
+                    extent * (1 + config['error_axis_margin']))
+        ax.legend(loc='best')
+    for ax in axes:
+        ax.grid(True, alpha=0.3)
+    m = summary['lateral_m']
+    fig.suptitle(f"RMSE {m['rmse']:.3f} m | P95 {m['p95_abs']:.3f} m | "
+                 f"max {m['max_abs']:.3f} m | "
+                 f"coverage {summary['progress_coverage_percent']:.1f}%")
+    fig.tight_layout()
+    fig.savefig(directory / 'tracking_overview.png', dpi=config['dpi'])
+    if show:
+        plt.show()
+    plt.close(fig)
+    print(f"{directory}: RMSE={m['rmse']:.4f} m, P95={m['p95_abs']:.4f} m, "
+          f"unexpected stops={summary['unexpected_stop_count']}, "
+          f"goal_reached={summary['goal_reached']}")
+    return summary
 
-    abx = bx - ax
-    aby = by - ay
-
-    apx = px - ax
-    apy = py - ay
-
-    ab2 = abx * abx + aby * aby
-
-    # A、B 重合
-    if ab2 < 1e-12:
-        dx = px - ax
-        dy = py - ay
-
-        return math.sqrt(
-            dx * dx + dy * dy
-        )
-
-    # 投影比例
-    t = (
-        apx * abx +
-        apy * aby
-    ) / ab2
-
-    t = max(
-        0.0,
-        min(1.0, t)
-    )
-
-    closest_x = ax + t * abx
-    closest_y = ay + t * aby
-
-    dx = px - closest_x
-    dy = py - closest_y
-
-    return math.sqrt(
-        dx * dx + dy * dy
-    )
-
-
-# ============================================================
-# 计算实际轨迹每个点到规划轨迹的最近距离
-# ============================================================
-
-def calculate_cross_track_error(
-    actual_x,
-    actual_y,
-    planned_xy
-):
-
-    errors = []
-
-    for px, py in zip(
-        actual_x,
-        actual_y
-    ):
-
-        min_dist = float('inf')
-
-        # 遍历所有规划路径线段
-        for i in range(
-            len(planned_xy) - 1
-        ):
-
-            ax, ay = planned_xy[i]
-            bx, by = planned_xy[i + 1]
-
-            dist = point_to_segment_distance(
-                px,
-                py,
-                ax,
-                ay,
-                bx,
-                by
-            )
-
-            if dist < min_dist:
-                min_dist = dist
-
-        errors.append(min_dist)
-
-    return np.array(errors)
-
-
-# ============================================================
-# 主程序
-# ============================================================
 
 def main():
-
-    data_dir = Path('data/path_record')  # 相对于启动程序时的工作目录
-
-    planned_file = (
-        data_dir /
-        'planned_path.csv'
-    )
-
-    actual_file = (
-        data_dir /
-        'actual_path.csv'
-    )
-
-    result_file = (
-        data_dir /
-        'tracking_error.csv'
-    )
-
-    print('======================================')
-    print('DWA Path Tracking Analysis')
-    print('======================================')
-
-    # --------------------------------------------------------
-    # 读取数据
-    # --------------------------------------------------------
-
-    planned = pd.read_csv(
-        planned_file
-    )
-
-    actual = pd.read_csv(
-        actual_file
-    )
-
-    if len(planned) < 2:
-        raise RuntimeError(
-            'Planned path has fewer than 2 points.'
-        )
-
-    if len(actual) == 0:
-        raise RuntimeError(
-            'Actual path is empty.'
-        )
-
-    planned_xy = list(
-        zip(
-            planned['x'].values,
-            planned['y'].values
-        )
-    )
-
-    # --------------------------------------------------------
-    # 计算误差
-    # --------------------------------------------------------
-
-    errors = calculate_cross_track_error(
-        actual['x'].values,
-        actual['y'].values,
-        planned_xy
-    )
-
-    actual['tracking_error'] = errors
-
-    # 保存结果
-    actual.to_csv(
-        result_file,
-        index=False
-    )
-
-    # --------------------------------------------------------
-    # 统计指标
-    # --------------------------------------------------------
-
-    mae = np.mean(
-        np.abs(errors)
-    )
-
-    rmse = np.sqrt(
-        np.mean(errors ** 2)
-    )
-
-    max_error = np.max(
-        errors
-    )
-
-    median_error = np.median(
-        errors
-    )
-
-    p95_error = np.percentile(
-        errors,
-        95
-    )
-
-    # 误差超过阈值的比例
-    threshold = 0.10
-
-    exceed_ratio = (
-        np.sum(errors > threshold)
-        /
-        len(errors)
-        *
-        100.0
-    )
-
-    print()
-    print('--------------- Tracking Error ---------------')
-
-    print(
-        f'MAE        : {mae:.4f} m'
-    )
-
-    print(
-        f'RMSE       : {rmse:.4f} m'
-    )
-
-    print(
-        f'Max Error  : {max_error:.4f} m'
-    )
-
-    print(
-        f'Median     : {median_error:.4f} m'
-    )
-
-    print(
-        f'95% Error  : {p95_error:.4f} m'
-    )
-
-    print(
-        f'> {threshold:.2f} m : '
-        f'{exceed_ratio:.2f}%'
-    )
-
-    # --------------------------------------------------------
-    # 计算实际轨迹长度
-    # --------------------------------------------------------
-
-    dx = np.diff(
-        actual['x'].values
-    )
-
-    dy = np.diff(
-        actual['y'].values
-    )
-
-    actual_length = np.sum(
-        np.sqrt(
-            dx * dx +
-            dy * dy
-        )
-    )
-
-    # --------------------------------------------------------
-    # 计算规划轨迹长度
-    # --------------------------------------------------------
-
-    pxy = np.array(
-        planned_xy
-    )
-
-    pdx = np.diff(
-        pxy[:, 0]
-    )
-
-    pdy = np.diff(
-        pxy[:, 1]
-    )
-
-    planned_length = np.sum(
-        np.sqrt(
-            pdx * pdx +
-            pdy * pdy
-        )
-    )
-
-    print()
-    print('--------------- Path Length ---------------')
-
-    print(
-        f'Planned length : '
-        f'{planned_length:.4f} m'
-    )
-
-    print(
-        f'Actual length  : '
-        f'{actual_length:.4f} m'
-    )
-
-    print(
-        f'Length error   : '
-        f'{actual_length - planned_length:.4f} m'
-    )
-
-    # --------------------------------------------------------
-    # 绘制轨迹对比
-    # --------------------------------------------------------
-
-    plt.figure(
-        figsize=(10, 8)
-    )
-
-    plt.plot(
-        planned['x'].to_numpy(),
-        planned['y'].to_numpy(),
-        label='A* / planned path'
-    )
-
-    plt.plot(
-        actual['x'].to_numpy(),
-        actual['y'].to_numpy(),
-        label='Actual trajectory'
-    )
-
-    plt.scatter(
-        planned['x'].iloc[0],
-        planned['y'].iloc[0],
-        marker='o',
-        s=60,
-        label='Start'
-    )
-
-    plt.scatter(
-        planned['x'].iloc[-1],
-        planned['y'].iloc[-1],
-        marker='x',
-        s=80,
-        label='Goal'
-    )
-
-    plt.xlabel('X [m]')
-    plt.ylabel('Y [m]')
-
-    plt.title(
-        'Planned Path vs Actual Trajectory'
-    )
-
-    plt.axis('equal')
-
-    plt.grid(True)
-
-    plt.legend()
-
-    plt.tight_layout()
-
-    trajectory_png = (
-        data_dir /
-        'trajectory_comparison.png'
-    )
-
-    plt.savefig(
-        trajectory_png,
-        dpi=200
-    )
-
-    plt.show()
-
-    # --------------------------------------------------------
-    # 绘制误差曲线
-    # --------------------------------------------------------
-
-    plt.figure(
-        figsize=(10, 5)
-    )
-
-    plt.plot(
-        actual['time'].to_numpy(),
-        errors
-    )
-
-    plt.axhline(
-        threshold,
-        linestyle='--',
-        label=f'{threshold:.2f} m threshold'
-    )
-
-    plt.xlabel(
-        'Time [s]'
-    )
-
-    plt.ylabel(
-        'Tracking Error [m]'
-    )
-
-    plt.title(
-        'Path Tracking Error'
-    )
-
-    plt.grid(True)
-
-    plt.legend()
-
-    plt.tight_layout()
-
-    error_png = (
-        data_dir /
-        'tracking_error.png'
-    )
-
-    plt.savefig(
-        error_png,
-        dpi=200
-    )
-
-    plt.show()
-
-    print()
-    print('Results saved to:')
-
-    print(
-        result_file
-    )
-
-    print(
-        trajectory_png
-    )
-
-    print(
-        error_png
-    )
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--config', type=Path, help='path_tracking.yaml')
+    parser.add_argument('--data-dir', type=Path,
+                        help='one path epoch, a run, or the recording root')
+    parser.add_argument('--show', action='store_true')
+    args = parser.parse_args()
+    config = load_config(args.config)
+    root = args.data_dir or Path(config['path_recorder']['ros__parameters']['output_dir'])
+    if not args.show:
+        matplotlib.use('Agg')
+    if (root / 'planned_path.csv').exists():
+        epochs = [root]
+    elif (root / 'manifest.json').exists():
+        epochs = sorted(root.glob('path_*'))
+    else:
+        runs = sorted(root.glob('run_*'))
+        if not runs:
+            parser.error(f'No recording found in {root}')
+        epochs = sorted(runs[-1].glob('path_*'))
+    results = []
+    for epoch in epochs:
+        try:
+            results.append({'epoch': epoch.name, **analyze(epoch, config['analysis'], args.show)})
+        except (ValueError, pd.errors.EmptyDataError) as error:
+            print(f'{epoch}: skipped: {error}')
+    if not results:
+        parser.error('No analyzable epochs; keep the recorder running while following a path')
+    save_summary(epochs[0].parent / 'run_summary.json', results)
 
 
 if __name__ == '__main__':

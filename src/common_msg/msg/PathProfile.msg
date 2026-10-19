@@ -7,3 +7,6 @@ nav_msgs/Path path
 float64[] tangent_yaw
 float64[] curvature
 bool[] stop_required
+# True: nodal curvature interpolates continuously between samples, except across stops.
+# False: legacy outgoing-primitive curvature is held on each segment.
+bool curvature_continuous

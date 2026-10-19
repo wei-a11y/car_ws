@@ -29,3 +29,8 @@ planner:
       arc_curvature_weight: 0.04  # cost: weight / radius; favours gentler bends
       recover_shortcut_corners: true  # compare pre-shortcut route when shortcut leaves stops
       retained_corner_cost: 2.0  # metres-equivalent cost per retained corner in that comparison
+      enable_curvature_transition: true  # line -> clothoid -> arc -> clothoid -> line
+      transition_length: 0.20  # preferred length of each entry/exit transition, metres
+      transition_min_length: 0.04  # search shorter transitions when space is limited
+      transition_samples: 4  # bounded length search, preferred to minimum
+      max_curvature_rate: 30.0  # 1/m^2; reject transitions that change curvature too quickly

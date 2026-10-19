@@ -346,3 +346,32 @@ def test_profile_can_arrive_before_path_and_circular_samples_do_not_stop(node):
             h.wait('TRACKING', nonzero=True)
             assert h.commands[-1].linear.x > 0.0
             assert h.commands[-1].angular.z > 0.0
+
+
+def test_continuous_curvature_and_synchronized_tracking_snapshot(node):
+    samples = []
+    node.create_subscription(Float64MultiArray, '/controller/lqr/tracking', samples.append, 10)
+    with running(command('-p', 'require_path_profile:=true')):
+        h = Harness(node)
+        h.pose[0] = .01
+        path = path_message(points=((0., 0.), (.02, 0.), (.04, .00016), (2., .03)))
+        profile = PathProfile(path=path, tangent_yaw=[0., .004, .016, .016],
+                              curvature=[0., .4, .8, 0.],
+                              stop_required=[False, False, False, True],
+                              curvature_continuous=True)
+        h.send_path(path)
+        h.profiles.publish(profile)
+        h.wait('TRACKING', nonzero=True)
+        spin_until(node, lambda: bool(samples) and bool(h.debug) and samples[-1].data[5] > 0.)
+        fields = samples[-1].layout.dim[0].label.split(',')
+        assert len(fields) == len(samples[-1].data)
+        data = dict(zip(fields, samples[-1].data))
+        assert data['curvature'] == pytest.approx(.6, abs=.001)
+        assert data['w_ff'] == pytest.approx(data['v_cmd'] * data['curvature'])
+        assert data['pose_x'] == pytest.approx(.01)
+        assert data['v_actual'] == 0.
+        assert data['path_sec'] == path.header.stamp.sec
+        assert data['path_nanosec'] == path.header.stamp.nanosec
+        assert data['geometry_valid'] == 1.
+        assert data['state'] == 2.
+        assert len(h.debug[-1].data) == 11

@@ -43,6 +43,11 @@ struct PathProcessingConfig
   double arc_curvature_weight = 0.04;
   bool recover_shortcut_corners = true;
   double retained_corner_cost = 2.0;  // equivalent metres per required stop
+  bool enable_curvature_transition = false;
+  double transition_length = 0.20;  // preferred length of EACH clothoid
+  double transition_min_length = 0.04;
+  std::size_t transition_samples = 4;
+  double max_curvature_rate = 30.0;  // abs(d curvature / ds), 1/m^2
 };
 
 struct PathProcessingStats

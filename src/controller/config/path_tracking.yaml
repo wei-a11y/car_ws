@@ -1,0 +1,24 @@
+path_recorder:
+  ros__parameters:
+    use_sim_time: true
+    global_frame: map  # must match controller planning_frame; poses come from that controller's TF
+    plan_topic: /plan
+    profile_topic: /plan/profile
+    tracking_topic: /controller/lqr/tracking
+    status_topic: /controller/lqr/status
+    output_dir: data/path_record
+    flush_period: 0.5  # ROS seconds; shutdown always flushes
+
+analysis:
+  ros__parameters:
+    error_axis: progress  # progress or time; time shows repeated stops more clearly
+    error_axis_margin: 0.15  # vertical padding beyond data/threshold; shading never sets scale
+    lateral_error_threshold: 0.10  # metres, assessment threshold, does not change controller limits
+    heading_error_threshold: 0.10  # radians
+    curve_curvature_threshold: 0.10  # 1/m
+    stopped_speed_threshold: 0.01  # m/s
+    stop_min_duration: 0.30  # seconds; exclude brief startup transients
+    stop_exclusion_distance: 0.05  # metres from start/next required stop
+    figure_size: [12.0, 15.0]
+    point_size: 3.0
+    dpi: 160

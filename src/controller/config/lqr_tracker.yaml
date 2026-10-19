@@ -7,6 +7,7 @@ lqr_controller:
     raw_cmd_topic: /cmd_vel_raw
     status_topic: /controller/lqr/status
     debug_topic: /controller/lqr/debug
+    tracking_topic: /controller/lqr/tracking  # synchronized pose/errors/progress/velocity for recorder
     diagnostic_log_period_sec: 1.0  # state/reason changes log immediately; repeats use wall time
     # Required: verified actual Path/map frame, not an assumed map/localization setup.
     planning_frame: map
@@ -48,6 +49,16 @@ lqr_controller:
     tracking_align_trigger: 1.0  # rad; large-error recovery only, not normal arc vertices
     max_reference_curvature: 20.0  # 1/m; reject invalid profile geometry above this value
     reference_heading_tolerance: 0.20  # rad; validate tangents against the associated Path
+    angular_acceleration_fraction: 0.75  # feedforward budget for a*kappa + v^2*kappa'
+    gain_schedule_min_speed: 0.05  # below this use the lowest-speed lateral LQR gain
+    gain_schedule_samples: 12  # precomputed across min speed .. v_max, interpolated online
+    speed_pid:
+      kp: 0.4
+      ki: 0.2
+      kd: 0.0  # derivative term available; start at zero with noisy odometry
+      integral_limit: 0.10  # maximum integral contribution, m/s
+      correction_limit: 0.05  # maximum PID correction to the reference, m/s
+      derivative_filter: 0.10  # seconds, filtered derivative on measured velocity
     tf_timeout_sec: 0.01
     tf_max_age_sec: 0.5
     odom_max_age_sec: 0.25

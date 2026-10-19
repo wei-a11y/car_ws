@@ -106,9 +106,118 @@ struct Fillet
   std::vector<PathPoint2D> points;
   double trim = 0.0;
   bool space_limited = false;
+  double radius = 0.0;
 };
 
 Point2D xy(const PathPoint2D & p) {return {p.x, p.y};}
+
+// Symmetric clothoid/arc/clothoid construction. Integrating the analytic heading
+// also constructs the geometry; filtering curvature on an unchanged circle would not.
+Fillet transition_fillet(
+  const PlanningGrid & grid, Point2D a, Point2D b, Point2D c, double available,
+  double radius, double transition, double turn, const PathProcessingConfig & config)
+{
+  Fillet result;
+  result.space_limited = true;
+  const double angle = std::abs(turn), sign = turn > 0.0 ? 1.0 : -1.0;
+  const double middle = std::max(0.0, radius * angle - transition);
+  const double length = 2.0 * transition + middle, peak = 1.0 / radius;
+  if (transition <= 0.0 || peak / transition > config.max_curvature_rate) {
+    return result;
+  }
+  const auto heading = [&](double s) {
+      if (s <= transition) {
+        return sign * peak * s * s / (2.0 * transition);
+      }
+      if (s <= transition + middle) {
+        return sign * peak * (s - transition / 2.0);
+      }
+      const double remaining = std::max(0.0, length - s);
+      return turn - sign * peak * remaining * remaining / (2.0 * transition);
+    };
+  const auto curvature = [&](double s) {
+      return sign * peak * std::clamp(std::min(s, length - s) / transition, 0.0, 1.0);
+    };
+  // |r''| <= peak gives a continuous curve/chord envelope peak*h^2/8.
+  const double step = std::min(
+    {config.resample_spacing, config.arc_max_angle / peak,
+      std::sqrt(4.0 * config.arc_max_deviation / peak)});
+  std::vector<double> samples{0.0};
+  for (const auto & stage : std::vector<std::pair<double, double>>{
+        {0.0, transition}, {transition, middle}, {transition + middle, transition}})
+  {
+    if (stage.second == 0.0) {
+      continue;
+    }
+    const double count = std::ceil(stage.second / step);
+    if (!std::isfinite(count) || count + samples.size() > config.max_output_points) {
+      throw std::length_error("Transition sampling exceeds max_output_points");
+    }
+    for (std::size_t j = 1; j <= static_cast<std::size_t>(count); ++j) {
+      samples.push_back(stage.first + stage.second * j / count);
+    }
+  }
+  std::vector<Point2D> local{{0.0, 0.0}};
+  double integration_error = 0.0;
+  // Composite midpoint error: |r'''| <= |k'| + k^2. Allocate 1/16 of
+  // the configured geometry tolerance to accumulated numerical integration.
+  const double third_bound = peak / transition + peak * peak;
+  for (std::size_t i = 1; i < samples.size(); ++i) {
+    const double h = samples[i] - samples[i - 1];
+    const double subdivisions = std::max(
+      1.0, std::ceil(
+        std::sqrt(
+          length * third_bound * h * h * 16.0 /
+          (24.0 * config.arc_max_deviation))));
+    if (!std::isfinite(subdivisions) || subdivisions > config.max_output_points) {
+      throw std::length_error("Transition integration exceeds work limit");
+    }
+    const double ds = h / subdivisions;
+    auto p = local.back();
+    for (std::size_t j = 0; j < static_cast<std::size_t>(subdivisions); ++j) {
+      const double yaw = heading(samples[i - 1] + (j + 0.5) * ds);
+      p.x += ds * std::cos(yaw);
+      p.y += ds * std::sin(yaw);
+    }
+    local.push_back(p);
+    integration_error += third_bound * h * ds * ds / 24.0;
+  }
+  const double half = turn / 2.0;
+  const double trim = (local.back().x * std::cos(half) +
+    local.back().y * std::sin(half)) / (2.0 * std::cos(half));
+  if (!std::isfinite(trim) || trim <= 0.0 || trim > available) {
+    return result;
+  }
+  result.space_limited = false;
+  const double initial = std::atan2(b.y - a.y, b.x - a.x);
+  const Point2D u{std::cos(initial), std::sin(initial)};
+  const double outgoing = std::atan2(c.y - b.y, c.x - b.x);
+  const Point2D entry{b.x - trim * u.x, b.y - trim * u.y};
+  const Point2D exit{b.x + trim * std::cos(outgoing), b.y + trim * std::sin(outgoing)};
+  const Point2D computed_exit{entry.x + u.x * local.back().x - u.y * local.back().y,
+    entry.y + u.y * local.back().x + u.x * local.back().y};
+  const double envelope = integration_error + distance(computed_exit, exit) + roundoff(trim);
+  if (!line_of_sight(grid, a, entry) || !line_of_sight(grid, exit, c)) {
+    return result;
+  }
+  for (std::size_t i = 0; i < samples.size(); ++i) {
+    const auto p = i + 1 == samples.size() ? exit : Point2D{
+      entry.x + u.x * local[i].x - u.y * local[i].y,
+      entry.y + u.y * local[i].x + u.x * local[i].y};
+    if (i > 0 && !arc_chord_is_free(
+        grid, xy(result.points.back()), p,
+        envelope + peak * std::pow(samples[i] - samples[i - 1], 2) / 8.0))
+    {
+      result.points.clear();
+      return result;
+    }
+    result.points.push_back(
+      {p.x, p.y, 0.0, initial + heading(samples[i]), curvature(samples[i]), false});
+  }
+  result.trim = trim;
+  result.radius = radius;
+  return result;
+}
 
 Fillet choose_fillet(
   const PlanningGrid & grid, Point2D a, Point2D b, Point2D c, double available,
@@ -136,10 +245,28 @@ Fillet choose_fillet(
     radii.push_back((1.0 - ratio) * upper + ratio * config.arc_min_radius);
   }
   double best_cost = std::numeric_limits<double>::infinity();
+  best.space_limited = config.enable_curvature_transition;
   for (double radius : radii) {
     const double cost = config.arc_radius_weight * std::pow(radius - config.arc_radius, 2) +
       config.arc_curvature_weight / radius;
     if (cost >= best_cost) {
+      continue;
+    }
+    if (config.enable_curvature_transition) {
+      const double preferred = std::min(config.transition_length, radius * std::abs(turn));
+      const double minimum = std::min(config.transition_min_length, preferred);
+      for (std::size_t j = 0; j < config.transition_samples; ++j) {
+        const double ratio = static_cast<double>(j) / (config.transition_samples - 1);
+        auto candidate = transition_fillet(
+          grid, a, b, c, available, radius,
+          preferred + ratio * (minimum - preferred), turn, config);
+        best.space_limited = best.space_limited && candidate.space_limited;
+        if (!candidate.points.empty()) {
+          best = std::move(candidate);
+          best_cost = cost;
+          break;  // Prefer the longest safe transition for this radius.
+        }
+      }
       continue;
     }
     const double trim = radius * tangent_factor;
@@ -174,6 +301,7 @@ Fillet choose_fillet(
     if (free) {
       best.points = std::move(arc);
       best.trim = trim;
+      best.radius = radius;
       best_cost = cost;
     }
   }
@@ -200,8 +328,7 @@ std::vector<PathPoint2D> round_corners(
           0.0, std::min(
             distance(points[i - 1], points[i]) - fillets[i - 1].trim,
             distance(points[i], points[i + 1]) - fillets[i + 1].trim));
-        const double old_radius = fillets[i].points.empty() ? 0.0 :
-          1.0 / std::abs(fillets[i].points.front().curvature);
+        const double old_radius = fillets[i].radius;
         fillets[i] = choose_fillet(
           grid, points[i - 1], points[i], points[i + 1], available, config, old_radius);
       }
@@ -264,6 +391,14 @@ double path_cost(
 
 void validate_path_processing_config(const PathProcessingConfig & config)
 {
+  if (!std::isfinite(config.transition_length) ||
+    !std::isfinite(config.transition_min_length) ||
+    !std::isfinite(config.max_curvature_rate) || config.transition_min_length <= 0.0 ||
+    config.transition_length < config.transition_min_length || config.max_curvature_rate <= 0.0 ||
+    config.transition_samples < 2 || config.transition_samples > 1000)
+  {
+    throw std::invalid_argument("Invalid curvature transition lengths, rate or search limit");
+  }
   if (!std::isfinite(config.resample_spacing) || config.resample_spacing <= 0.0 ||
     config.shortcut_max_lookahead == 0 || config.max_output_points == 0)
   {
@@ -447,7 +582,9 @@ std::vector<PathPoint2D> process_path(
       const double yaw_delta = std::remainder(end_yaw - a.tangent_yaw, 2.0 * std::acos(-1.0));
       append(
         {a.x + (b.x - a.x) * ratio, a.y + (b.y - a.y) * ratio, 0.0,
-          a.tangent_yaw + ratio * yaw_delta, a.curvature, false});
+          a.tangent_yaw + ratio * yaw_delta,
+          config.enable_curvature_transition && !b.stop_required ?
+          a.curvature + ratio * (b.curvature - a.curvature) : a.curvature, false});
       next_sample = ++sample_index * config.resample_spacing;
     }
     if (std::abs(next_sample - end) <= roundoff(end)) {

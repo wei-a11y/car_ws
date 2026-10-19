@@ -55,6 +55,11 @@ double normalize_angle(double angle)
 
 void validate_config(const TrackerConfig & c)
 {
+  for (double value : {c.speed_pid_kp, c.speed_pid_ki, c.speed_pid_kd}) {
+    if (!std::isfinite(value) || value < 0.0) {
+      throw std::invalid_argument("PID gains must be finite and nonnegative");
+    }
+  }
   const double positive[] = {c.control_period, c.v_nominal, c.v_max, c.w_max,
     c.q_lateral, c.q_heading, c.r_angular, c.riccati_tolerance, c.lookahead_distance,
     c.nearest_forward_distance, c.nearest_backward_distance, c.slowdown_gain, c.align_gain,
@@ -62,16 +67,25 @@ void validate_config(const TrackerConfig & c)
     c.stopped_linear_tolerance, c.stopped_angular_tolerance, c.max_tracking_error,
     c.linear_acceleration, c.linear_deceleration, c.angular_acceleration, c.lateral_acceleration,
     c.feedforward_angular_fraction, c.tracking_align_trigger, c.max_reference_curvature,
-    c.reference_heading_tolerance};
+    c.reference_heading_tolerance, c.speed_pid_integral_limit,
+    c.speed_pid_correction_limit, c.speed_pid_derivative_filter,
+    c.angular_acceleration_fraction};
   for (double value : positive) {
     if (!std::isfinite(value) || value <= 0.0) {
       throw std::invalid_argument("Tracker numeric parameters must be finite and positive");
     }
   }
+  if (!std::isfinite(c.gain_schedule_min_speed) || c.gain_schedule_min_speed <= 0.0 ||
+    c.gain_schedule_min_speed > c.v_max || c.gain_schedule_samples < 2 ||
+    c.gain_schedule_samples > 1000)
+  {
+    throw std::invalid_argument("Invalid LQR speed schedule");
+  }
   if (c.v_nominal > c.v_max || c.heading_tolerance >= c.align_trigger ||
     c.align_trigger >= kPi / 2.0 || c.riccati_tolerance >= 1.0 ||
     c.riccati_max_iterations == 0 || c.max_path_points == 0 ||
-    c.feedforward_angular_fraction >= 1.0 || c.tracking_align_trigger >= kPi / 2.0 ||
+    c.feedforward_angular_fraction >= 1.0 || c.angular_acceleration_fraction >= 1.0 ||
+    c.tracking_align_trigger >= kPi / 2.0 ||
     c.tracking_align_trigger <= c.heading_tolerance ||
     c.reference_heading_tolerance >= kPi / 2.0 ||
     !std::isfinite(c.feedforward_preview_distance) || c.feedforward_preview_distance < 0.0)
@@ -178,10 +192,22 @@ const char * fault_name(TrackerFault fault)
 LqrTracker::LqrTracker(TrackerConfig config)
 : config_(config), gain_(lqr_gain(config))
 {
+  for (std::size_t i = 0; i < config_.gain_schedule_samples; ++i) {
+    auto scheduled = config_;
+    const double ratio = static_cast<double>(i) / (config_.gain_schedule_samples - 1);
+    scheduled.v_nominal = config_.gain_schedule_min_speed +
+      ratio * (config_.v_max - config_.gain_schedule_min_speed);
+    scheduled_gains_.push_back(lqr_gain(scheduled));
+  }
 }
 
 void LqrTracker::clear_path()
 {
+  reset_speed_control();
+  acceleration_limits_.clear();
+  deceleration_limits_.clear();
+  segment_speed_limits_.clear();
+  continuous_curvature_ = false;
   points_.clear();
   segments_.clear();
   segment_ = 0;
@@ -237,11 +263,69 @@ void LqrTracker::set_path(const std::vector<Point2D> & path)
   segments_ = std::move(segments);
 }
 
+void LqrTracker::reset_speed_control()
+{
+  speed_integral_ = speed_derivative_ = 0.0;
+  previous_command_ = previous_reference_ = previous_speed_ = 0.0;
+  speed_initialized_ = false;
+}
+
+double LqrTracker::speed_control(
+  double target, double actual, double limit, double acceleration, double deceleration)
+{
+  const double dt = config_.control_period;
+  if (!speed_initialized_) {
+    previous_speed_ = actual;
+    previous_command_ = previous_reference_ = std::max(0.0, actual);
+    speed_initialized_ = true;
+  }
+  // Slew the setpoint before PID: derivative on measurement avoids setpoint kicks.
+  const double reference = std::min(
+    limit, std::clamp(
+      target, std::max(0.0, previous_reference_ - deceleration * dt),
+      previous_reference_ + acceleration * dt));
+  const double error = reference - actual;
+  const double alpha = dt / (config_.speed_pid_derivative_filter + dt);
+  speed_derivative_ += alpha * ((actual - previous_speed_) / dt - speed_derivative_);
+  const double candidate_integral = std::clamp(
+    speed_integral_ + config_.speed_pid_ki * error * dt,
+    -config_.speed_pid_integral_limit, config_.speed_pid_integral_limit);
+  const auto output = [&](double integral) {
+      return reference + std::clamp(
+        config_.speed_pid_kp * error + integral - config_.speed_pid_kd * speed_derivative_,
+        -config_.speed_pid_correction_limit, config_.speed_pid_correction_limit);
+    };
+  const double upper = std::min({limit, config_.v_max, previous_command_ + acceleration * dt});
+  const double lower = std::min(
+    upper, std::max(0.0, previous_command_ - deceleration * dt));
+  const double unsaturated = output(candidate_integral);
+  const double correction = config_.speed_pid_kp * error + candidate_integral -
+    config_.speed_pid_kd * speed_derivative_;
+  // Conditional integration includes PID correction, actuator slew and curvature/braking caps.
+  if ((unsaturated <= upper && unsaturated >= lower &&
+    std::abs(correction) < config_.speed_pid_correction_limit) ||
+    (error < 0.0 && (unsaturated > upper || correction > config_.speed_pid_correction_limit)) ||
+    (error > 0.0 && (unsaturated < lower || correction < -config_.speed_pid_correction_limit)))
+  {
+    speed_integral_ = candidate_integral;
+  }
+  previous_command_ = std::clamp(output(speed_integral_), lower, upper);
+  previous_reference_ = reference;
+  previous_speed_ = actual;
+  return previous_command_;
+}
+
 TrackerResult LqrTracker::step(Pose2D pose, Velocity2D actual)
 {
-  if (continuous_) {
-    return step_continuous(pose, actual);
+  auto result = continuous_ ? step_continuous(pose, actual) : step_legacy(pose, actual);
+  if (result.state != TrackerState::TRACKING) {
+    reset_speed_control();
   }
+  return result;
+}
+
+TrackerResult LqrTracker::step_legacy(Pose2D pose, Velocity2D actual)
+{
   TrackerResult result;
   if (!has_path()) {
     return result;

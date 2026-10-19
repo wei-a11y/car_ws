@@ -103,6 +103,15 @@ private:
     c.tracking_align_trigger = parameter<double>("tracking_align_trigger");
     c.max_reference_curvature = parameter<double>("max_reference_curvature");
     c.reference_heading_tolerance = parameter<double>("reference_heading_tolerance");
+    c.speed_pid_kp = parameter<double>("speed_pid.kp");
+    c.speed_pid_ki = parameter<double>("speed_pid.ki");
+    c.speed_pid_kd = parameter<double>("speed_pid.kd");
+    c.speed_pid_integral_limit = parameter<double>("speed_pid.integral_limit");
+    c.speed_pid_correction_limit = parameter<double>("speed_pid.correction_limit");
+    c.speed_pid_derivative_filter = parameter<double>("speed_pid.derivative_filter");
+    c.angular_acceleration_fraction = parameter<double>("angular_acceleration_fraction");
+    c.gain_schedule_min_speed = parameter<double>("gain_schedule_min_speed");
+    c.gain_schedule_samples = count("gain_schedule_samples");
     require_profile_ = parameter<bool>("require_path_profile");
     return c;
   }
@@ -131,11 +140,17 @@ private:
     if (!std::isfinite(tf_timeout_) || tf_timeout_ < 0.0 || tf_timeout_ >= period_ / 2.0) {
       throw std::invalid_argument("TF wait must be finite, nonnegative and less than half a period");
     }
-    const auto stable_gain = tracker_->gain();
-    if (max_control_gap_ * stable_gain[1] >= 2.0 ||
-      stable_gain[1] <= 0.5 * tracker_config_.v_nominal * max_control_gap_ * stable_gain[0])
-    {
-      throw std::invalid_argument("max_control_gap_sec exceeds the local stability range");
+    for (std::size_t i = 0; i < tracker_config_.gain_schedule_samples; ++i) {
+      auto config = tracker_config_;
+      const double ratio = static_cast<double>(i) / (config.gain_schedule_samples - 1);
+      config.v_nominal = config.gain_schedule_min_speed +
+        ratio * (config.v_max - config.gain_schedule_min_speed);
+      const auto stable_gain = lqr_gain(config);
+      if (max_control_gap_ * stable_gain[1] >= 2.0 ||
+        stable_gain[1] <= 0.5 * config.v_nominal * max_control_gap_ * stable_gain[0])
+      {
+        throw std::invalid_argument("max_control_gap_sec exceeds the scheduled stability range");
+      }
     }
   }
 
@@ -148,6 +163,8 @@ private:
     status_pub_ = create_publisher<std_msgs::msg::String>(
       topic("status_topic"), rclcpp::QoS(1).reliable().transient_local());
     debug_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(topic("debug_topic"), qos);
+    tracking_pub_ =
+      create_publisher<std_msgs::msg::Float64MultiArray>(topic("tracking_topic"), qos);
     path_sub_ = create_subscription<nav_msgs::msg::Path>(
       topic("path_topic"), qos,
       [this](nav_msgs::msg::Path::ConstSharedPtr message) {on_path(*message);});
@@ -166,9 +183,9 @@ private:
     if (output == "/cmd_vel" || output == "/diff_drive_controller/cmd_vel_unstamped") {
       throw std::invalid_argument("LQR output must be a separate raw topic, never the base command");
     }
-    const std::array<std::string, 6> topics = {output, status_pub_->get_topic_name(),
+    const std::array<std::string, 7> topics = {output, status_pub_->get_topic_name(),
       debug_pub_->get_topic_name(), path_sub_->get_topic_name(), odom_sub_->get_topic_name(),
-      profile_sub_->get_topic_name()};
+      profile_sub_->get_topic_name(), tracking_pub_->get_topic_name()};
     for (std::size_t i = 0; i < topics.size(); ++i) {
       for (std::size_t j = i + 1; j < topics.size(); ++j) {
         if (topics[i] == topics[j]) {
@@ -286,6 +303,7 @@ private:
 
   void stop(const std::string & code, const std::string & detail)
   {
+    tracker_->reset_speed_control();
     command({0.0, 0.0});
     status(code, detail, detail.substr(0, detail.find(' ')));
   }
@@ -393,7 +411,7 @@ private:
           {point.x, point.y, profile.tangent_yaw[i], profile.curvature[i],
             static_cast<bool>(profile.stop_required[i])});
       }
-      tracker_->set_profile(reference);
+      tracker_->set_profile(reference, profile.curvature_continuous);
       path_error_ = "PATH_UNAVAILABLE";
       status("PATH_ACCEPTED", "Exact Path/profile pair accepted for continuous tracking");
     } catch (const std::exception & error) {
@@ -476,10 +494,27 @@ private:
     std_msgs::msg::Float64MultiArray debug;
     debug.layout.dim.resize(1);
     debug.layout.dim[0].label =
-      "ey,etheta,progress,remaining,v_ref,v_cmd,w_cmd,nearest_x,nearest_y,lookahead_x,lookahead_y";
+      "ey,etheta,progress,remaining,v_ref,v_cmd,w_cmd,nearest_x,nearest_y,lookahead_x,lookahead_y,"
+      "curvature,w_ff,v_actual,w_actual,pose_x,pose_y,pose_yaw,ros_time,path_sec,path_nanosec,"
+      "state,geometry_valid";
     debug.data = {result.lateral_error, result.heading_error, result.progress, result.remaining,
       result.reference_speed, result.command.v, result.command.w,
-      result.nearest.x, result.nearest.y, result.lookahead.x, result.lookahead.y};
+      result.nearest.x, result.nearest.y, result.lookahead.x, result.lookahead.y,
+      result.reference_curvature, result.feedforward_angular,
+      result.diagnostics.actual.v, result.diagnostics.actual.w,
+      result.diagnostics.pose.x, result.diagnostics.pose.y, result.diagnostics.pose.yaw,
+      now().seconds(),
+      pending_path_ ? static_cast<double>(pending_path_->header.stamp.sec) : 0.0,
+      pending_path_ ? static_cast<double>(pending_path_->header.stamp.nanosec) : 0.0,
+      static_cast<double>(result.state),
+      result.diagnostics.geometry_valid && result.diagnostics.fault == TrackerFault::NONE ?
+      1.0 : 0.0};
+    debug.layout.dim[0].size = debug.layout.dim[0].stride = debug.data.size();
+    tracking_pub_->publish(debug);
+    // Preserve the established eleven-element debug interface for existing consumers.
+    debug.data.resize(11);
+    debug.layout.dim[0].label =
+      "ey,etheta,progress,remaining,v_ref,v_cmd,w_cmd,nearest_x,nearest_y,lookahead_x,lookahead_y";
     debug.layout.dim[0].size = debug.layout.dim[0].stride = debug.data.size();
     debug_pub_->publish(debug);
     RCLCPP_DEBUG_THROTTLE(
@@ -589,6 +624,7 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr command_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr debug_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr tracking_pub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
   rclcpp::Subscription<common_msg::msg::PathProfile>::SharedPtr profile_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;

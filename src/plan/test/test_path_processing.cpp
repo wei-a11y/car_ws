@@ -581,3 +581,99 @@ TEST(PathProcessing, ShortcutCanBeRecoveredWhenItsCornerCannotFitASafeArc)
   }
 }
 }  // namespace
+
+TEST(CurvatureTransition, LeftRightGeometryHasContinuousCurvatureAndNoInteriorStops)
+{
+  const auto grid = make_grid();
+  for (double sign : {-1.0, 1.0}) {
+    auto cfg = arc_config(0.6, 0.6);
+    cfg.enable_curvature_transition = true;
+    const double y = sign > 0.0 ? 1.5 : 5.5;
+    plan::PathProcessingStats stats;
+    const auto path = plan::process_path(
+      grid, {{1.5, y}, {5.5, y}, {5.5, y + sign * 3.0}}, cfg, &stats);
+    ASSERT_EQ(stats.rounded_corners, 1U);
+    EXPECT_EQ(stats.retained_corners, 0U);
+    std::size_t rising = 0, falling = 0, plateau = 0;
+    EXPECT_DOUBLE_EQ(path.front().curvature, 0.0);
+    EXPECT_NEAR(path.back().curvature, 0.0, 1e-12);
+    for (std::size_t i = 1; i < path.size(); ++i) {
+      const auto & a = path[i - 1];
+      const auto & b = path[i];
+      const double ds = std::hypot(b.x - a.x, b.y - a.y);
+      EXPECT_FALSE(a.stop_required);
+      EXPECT_TRUE(plan::line_of_sight(grid, {a.x, a.y}, {b.x, b.y}));
+      const double delta = sign * (b.curvature - a.curvature);
+      rising += delta > 1e-8;
+      falling += delta < -1e-8;
+      plateau += std::abs(b.curvature - sign / 0.6) < 1e-10;
+      EXPECT_LE(std::abs(delta) / ds, cfg.max_curvature_rate * 1.001);
+      EXPECT_LE(
+        std::abs(
+          std::remainder(
+            b.tangent_yaw - a.tangent_yaw,
+            2.0 * std::acos(-1.0))), ds / 0.6 * 1.001 + 1e-12);
+    }
+    EXPECT_GT(rising, 2U);
+    EXPECT_GT(falling, 2U);
+    EXPECT_GT(plateau, 2U);
+    EXPECT_TRUE(path.back().stop_required);
+  }
+}
+
+TEST(CurvatureTransition, ShortTurnsAndBlockedTransitionsFallBackSafely)
+{
+  auto cfg = arc_config(0.6, 0.6);
+  cfg.enable_curvature_transition = true;
+  cfg.max_curvature_rate = 0.01;  // No allowed transition can reach the requested peak.
+  plan::PathProcessingStats stats;
+  const auto path = plan::process_path(
+    make_grid(), {{1.5, 1.5}, {5.5, 1.5}, {5.5, 5.5}}, cfg, &stats);
+  EXPECT_EQ(stats.rounded_corners, 0U);
+  EXPECT_EQ(stats.retained_corners, 1U);
+  EXPECT_TRUE(contains(path, 5.5, 1.5));
+  cfg.max_curvature_rate = 30.0;
+  cfg.transition_min_length = 0.0;
+  EXPECT_THROW(plan::validate_path_processing_config(cfg), std::invalid_argument);
+}
+
+TEST(CurvatureTransition, RandomAStarTransitionsRemainFreeAndAdjacentCurvesDoNotOverlap)
+{
+  std::mt19937 random(811);
+  std::size_t smoothed = 0;
+  for (int trial = 0; trial < 60; ++trial) {
+    std::vector<std::int8_t> cells(64, 0);
+    for (auto & cell : cells) {
+      cell = random() % 10 == 0 ? 100 : 0;
+    }
+    cells.front() = cells.back() = 0;
+    const auto grid = make_grid(cells);
+    const auto search = plan::astar_search(&grid, {0, 0}, {7, 7});
+    if (search.status != plan::PlanStatus::SUCCESS) {
+      continue;
+    }
+    std::vector<plan::Point2D> raw;
+    for (const auto & cell : search.cells) {
+      const auto p = grid.cell_to_world(cell.x, cell.y);
+      raw.push_back({p.first, p.second});
+    }
+    auto cfg = arc_config();
+    cfg.enable_shortcut = cfg.enable_curvature_transition = true;
+    plan::PathProcessingStats stats;
+    const auto path = plan::process_path(grid, raw, cfg, &stats);
+    smoothed += stats.rounded_corners;
+    double length = 0.0;
+    for (std::size_t i = 1; i < path.size(); ++i) {
+      EXPECT_TRUE(
+        reference_visible(
+          grid, {path[i - 1].x, path[i - 1].y},
+          {path[i].x, path[i].y}));
+      const double ds = std::hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+      EXPECT_GT(ds, 0.0);
+      EXPECT_LE(ds, cfg.resample_spacing + 1e-12);
+      length += ds;
+    }
+    EXPECT_LE(length, search.total_cost + 1e-9);
+  }
+  EXPECT_GT(smoothed, 0U);
+}
