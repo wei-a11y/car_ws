@@ -20,5 +20,5 @@ safety_gate:
     clock_timeout_sec: 0.30  # steady-clock guard also handles paused /clock
     future_tolerance_sec: 0.02
     tf_timeout_sec: 0.0  # do not block the stop timer waiting for TF
-    v_max: 0.20  # same low-speed bound as current LQR
-    w_max: 0.60
+    v_max: 0.60  # moderate, stable motion limit for current robot
+    w_max: 0.80

@@ -7,7 +7,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -31,6 +31,8 @@ def generate_launch_description():
                              default_value=str(share / 'config/navigation_baseline.yaml')),
         DeclareLaunchArgument('enable', default_value='true',
                              description='false inhibits commands; never bypasses Safety Gate'),
+        DeclareLaunchArgument('controller_type',default_value='dwa',
+                              description='Controller selection: dwa or lqr'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel',
                              description='Override with a debug topic for isolated testing'),
         GroupAction([IncludeLaunchDescription(
@@ -57,8 +59,40 @@ def generate_launch_description():
              output='screen', parameters=[str(plan / 'config/planning_grid.yaml'), config]),
         Node(package='plan', executable='astar_node', name='planner', output='screen',
              parameters=[str(plan / 'config/astar.yaml'), config]),
-        Node(package='controller', executable='lqr_tracker_node', name='lqr_controller',
-             output='screen', parameters=[str(controller / 'config/lqr_tracker.yaml'), config]),
+
+     Node(
+     package='controller',
+     executable='dwa_tracker_node',
+     name='dwa_controller',
+     output='screen',
+     condition=IfCondition(
+          PythonExpression([
+               "'", LaunchConfiguration('controller_type'),
+               "' == 'dwa'"
+          ])
+     ),
+     parameters=[
+          str(controller / 'config/dwa_tracker.yaml'),
+          config
+     ]
+     ),
+
+     Node(
+     package='controller',
+     executable='lqr_tracker_node',
+     name='lqr_controller',
+     output='screen',
+     condition=IfCondition(
+          PythonExpression([
+               "'", LaunchConfiguration('controller_type'),
+               "' == 'lqr'"
+          ])
+     ),
+     parameters=[
+          str(controller / 'config/lqr_tracker.yaml'),
+          config,
+     ]
+     ),
         Node(package='controller', executable='safety_gate_node', name='safety_gate',
              output='screen', parameters=[str(controller / 'config/safety_gate.yaml'), {
                  'use_sim_time': True,
