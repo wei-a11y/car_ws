@@ -81,20 +81,22 @@ python3 src/controller/scripts/record_path_tracking.py --ros-args \
   --params-file src/controller/config/path_tracking.yaml
 ```
 
-结束后对最近一次记录进行分析（默认不弹窗）：
+结束后对最近一次记录进行分析（默认保存图片并弹窗显示，关闭窗口后程序继续）：
 
 ```bash
 python3 src/controller/scripts/analyze_path_tracking.py \
   --config src/controller/config/path_tracking.yaml
 ```
 
-或指定某个 run / path 目录，用 `--show` 弹窗：
+或指定某个 run / path 目录：
 
 ```bash
 python3 src/controller/scripts/analyze_path_tracking.py \
   --config src/controller/config/path_tracking.yaml \
-  --data-dir data/path_record/run_具体时间/path_0001 --show
+  --data-dir data/path_record/run_具体时间/path_0001
 ```
+
+只保存图片而不弹窗（例如无桌面环境）时，添加 `--no-show`；原有 `--show` 参数仍可使用。
 
 ## 图像和指标
 

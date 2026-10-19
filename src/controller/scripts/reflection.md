@@ -33,3 +33,4 @@ ros2 topic pub --once --use-sim-time --qos-durability volatile \
       position: {x: -0.87, y: 7.64, z: 0.0},
       orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
     }}"
+6.在我运行python3 src/controller/scripts/analyze_path_tracking.py指令后报错，一般都是因为旧文件残留，导致分析文件读取的路径是旧文件的路径，此时要么直接指令读取到最新产生的图像进行分析；要么就修改分析文件里读取文件的路径

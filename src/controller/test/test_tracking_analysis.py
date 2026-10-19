@@ -13,6 +13,42 @@ analysis = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(analysis)
 
 
+def test_recording_root_ignores_legacy_csvs_when_runs_exist(tmp_path):
+    (tmp_path / 'planned_path.csv').write_text('index,x,y\n0,0,0\n')
+    (tmp_path / 'actual_path.csv').write_text('time,x,y,yaw\n0,0,0,0\n')
+    old_run = tmp_path / 'run_20261019_203326_360761'
+    new_run = tmp_path / 'run_20261019_210334_835379'
+    for run in (new_run, old_run):
+        run.mkdir()
+        (run / 'manifest.json').write_text('{}')
+        (run / 'path_0001').mkdir()
+    second = new_run / 'path_0002'
+    second.mkdir()
+    (tmp_path / 'run_99999999_note').write_text('not a run directory')
+    (new_run / 'path_notes.txt').write_text('not a path directory')
+
+    assert analysis.recording_epochs(tmp_path) == [new_run / 'path_0001', second]
+    assert analysis.recording_epochs(old_run) == [old_run / 'path_0001']
+    epoch = old_run / 'path_0001'
+    (epoch / 'planned_path.csv').touch()
+    assert analysis.recording_epochs(epoch) == [epoch]
+
+
+def test_empty_latest_run_does_not_fall_back_to_old_data(tmp_path):
+    (tmp_path / 'planned_path.csv').touch()
+    latest = tmp_path / 'run_20261019_210334_835379'
+    latest.mkdir()
+    (latest / 'manifest.json').write_text('{}')
+    assert analysis.recording_epochs(tmp_path) == []
+
+
+def test_legacy_recording_and_missing_recording(tmp_path):
+    with pytest.raises(ValueError, match='No recording found'):
+        analysis.recording_epochs(tmp_path)
+    (tmp_path / 'planned_path.csv').touch()
+    assert analysis.recording_epochs(tmp_path) == [tmp_path]
+
+
 def test_signed_errors_curves_incomplete_coverage_and_stop_duration():
     config = analysis.load_config()['analysis']
     planned = pd.DataFrame({'x': [0., 2.], 'y': [0., 0.]})

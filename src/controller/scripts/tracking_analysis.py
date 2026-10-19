@@ -21,6 +21,19 @@ def load_config(path=None):
     return config
 
 
+def recording_epochs(root):
+    """Prefer new run directories over legacy CSVs left in the recording root."""
+    root = Path(root)
+    if (root / 'manifest.json').is_file():
+        return sorted(p for p in root.glob('path_*') if p.is_dir())
+    runs = sorted(p for p in root.glob('run_*') if p.is_dir())
+    if runs:
+        return sorted(p for p in runs[-1].glob('path_*') if p.is_dir())
+    if (root / 'planned_path.csv').is_file():
+        return [root]
+    raise ValueError(f'No recording found in {root}')
+
+
 def duration_of_runs(time, mask, minimum_duration):
     """Sample intervals, not sample counts; a run may span a simulation pause."""
     time = np.asarray(time, dtype=float)

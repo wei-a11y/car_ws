@@ -10,7 +10,7 @@ import matplotlib
 import numpy as np
 import pandas as pd
 
-from tracking_analysis import load_config, save_summary, summarize
+from tracking_analysis import load_config, recording_epochs, save_summary, summarize
 
 
 def analyze(directory, config, show=False):
@@ -81,21 +81,17 @@ def main():
     parser.add_argument('--config', type=Path, help='path_tracking.yaml')
     parser.add_argument('--data-dir', type=Path,
                         help='one path epoch, a run, or the recording root')
-    parser.add_argument('--show', action='store_true')
+    parser.add_argument('--show', action=argparse.BooleanOptionalAction, default=True,
+                        help='show plots after saving (default: enabled; --no-show saves only)')
     args = parser.parse_args()
     config = load_config(args.config)
     root = args.data_dir or Path(config['path_recorder']['ros__parameters']['output_dir'])
     if not args.show:
         matplotlib.use('Agg')
-    if (root / 'planned_path.csv').exists():
-        epochs = [root]
-    elif (root / 'manifest.json').exists():
-        epochs = sorted(root.glob('path_*'))
-    else:
-        runs = sorted(root.glob('run_*'))
-        if not runs:
-            parser.error(f'No recording found in {root}')
-        epochs = sorted(runs[-1].glob('path_*'))
+    try:
+        epochs = recording_epochs(root)
+    except ValueError as error:
+        parser.error(str(error))
     results = []
     for epoch in epochs:
         try:
