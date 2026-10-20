@@ -34,7 +34,10 @@ def test_epochs_pairing_empty_path_and_queued_samples(tmp_path):
             p.pose.orientation.w = 1.
             path.poses.append(p)
         profile = PathProfile(path=path, tangent_yaw=[0., 0.], curvature=[0., 0.],
-                              stop_required=[False, True], curvature_continuous=True)
+                              stop_required=[False, True], curvature_continuous=True,
+                              segment_type=[0, 0], speed_limit=[.12, 0.],
+                              curvature_bound=[0., 0.], curvature_rate_bound=[0., 0.],
+                              processing_report='{"retained_corners": 0}')
         node.on_profile(profile)  # DDS may deliver profile before its Path.
         node.on_path(path)
         msg = Float64MultiArray()
@@ -62,6 +65,12 @@ def test_epochs_pairing_empty_path_and_queued_samples(tmp_path):
             with (epoch / 'actual_path.csv').open() as fp:
                 assert len(list(csv.DictReader(fp))) == 1
         assert '"profile_received": true' in (epochs[0] / 'path.json').read_text()
+        with (epochs[0] / 'planned_path.csv').open() as fp:
+            planned = list(csv.DictReader(fp))
+        assert float(planned[0]['speed_limit']) == .12
+        assert int(planned[0]['segment_type']) == 0
+        report = (epochs[0] / 'planning_report.json').read_text().strip()
+        assert report == profile.processing_report
     finally:
         node.destroy_node()
         rclpy.shutdown()

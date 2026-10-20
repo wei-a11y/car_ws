@@ -12,13 +12,17 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     share = Path(get_package_share_directory('controller'))
+    plan = Path(get_package_share_directory('plan'))
     return LaunchDescription([
         DeclareLaunchArgument('planning_frame', description='Verified Path/map frame'),
         DeclareLaunchArgument('params_file', default_value=str(share / 'config/lqr_tracker.yaml')),
+        DeclareLaunchArgument('motion_limits_file',
+                             default_value=str(plan / 'config/motion_limits.yaml')),
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         Node(
             package='controller', executable='lqr_tracker_node', name='lqr_controller',
-            output='screen', parameters=[LaunchConfiguration('params_file'), {
+            output='screen', parameters=[LaunchConfiguration('params_file'),
+                                         LaunchConfiguration('motion_limits_file'), {
                 'planning_frame': ParameterValue(
                     LaunchConfiguration('planning_frame'), value_type=str),
                 'use_sim_time': ParameterValue(

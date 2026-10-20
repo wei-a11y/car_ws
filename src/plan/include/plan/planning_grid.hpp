@@ -47,6 +47,8 @@ public:
   bool is_blocked(std::size_t x, std::size_t y) const;
   std::pair<double, double> cell_to_world(std::size_t x, std::size_t y) const;
   bool world_to_cell(double x, double y, std::size_t & cell_x, std::size_t & cell_y) const;
+  // Cached distance to inflated blocked cells/map boundary; used for scoring, never collision.
+  double clearance_at(double x, double y) const;
 
 private:
   PlanningGrid(GridGeometry geometry, std::vector<std::int8_t> cells, std::size_t max_cells);
@@ -55,6 +57,7 @@ private:
   std::vector<std::int8_t> raw_;
   std::vector<std::uint8_t> obstacles_;
   std::vector<std::int8_t> inflated_;
+  mutable std::vector<double> clearance_;
 };
 }  // namespace plan
 #endif  // PLAN__PLANNING_GRID_HPP_

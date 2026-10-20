@@ -16,10 +16,13 @@ def generate_launch_description():
         DeclareLaunchArgument('planning_frame', description='Verified OccupancyGrid frame'),
         DeclareLaunchArgument(
             'params_file', default_value=str(share / 'config/astar.yaml')),
+        DeclareLaunchArgument('motion_limits_file',
+                              default_value=str(share / 'config/motion_limits.yaml')),
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         Node(
             package='plan', executable='astar_node', name='planner', output='screen',
-            parameters=[LaunchConfiguration('params_file'), {
+            parameters=[LaunchConfiguration('params_file'),
+                        LaunchConfiguration('motion_limits_file'), {
                 'planning_frame': ParameterValue(
                     LaunchConfiguration('planning_frame'), value_type=str),
                 'use_sim_time': ParameterValue(

@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 import math
 import os
+from pathlib import Path as FilePath
 import signal
 import subprocess
 import time
@@ -32,7 +33,9 @@ def settle(node, seconds=0.3):
 
 def command(*overrides):
     return [os.environ['ASTAR_EXECUTABLE'], '--ros-args', '--params-file',
-            os.environ['ASTAR_CONFIG'], '-p', 'planning_frame:=grid_debug',
+            os.environ['ASTAR_CONFIG'], '--params-file',
+            str(FilePath(__file__).parents[1] / 'config/motion_limits.yaml'),
+            '-p', 'planning_frame:=grid_debug',
             '-p', 'use_sim_time:=false', *overrides]
 
 
@@ -126,6 +129,12 @@ class Harness:
                 len(profile.stop_required) == len(path.poses))
         if path.poses:
             assert profile.stop_required[-1]
+            if profile.speed_limit:
+                assert len(profile.segment_type) == len(profile.speed_limit) == len(path.poses)
+                assert len(profile.curvature_bound) == len(path.poses)
+                assert len(profile.curvature_rate_bound) == len(path.poses)
+                assert profile.speed_limit[-1] == 0.
+                assert profile.processing_report
         assert raw.header == path.header
         assert bool(raw.poses) == (expected == 'SUCCESS')
         assert all(p.header == raw.header for p in raw.poses)
@@ -341,8 +350,10 @@ def test_invalid_processing_config_or_aliased_output_rejected(node, override):
 
 @pytest.mark.parametrize('smoothing', [False, True])
 def test_arc_smoothing_changes_geometry_and_preserves_interfaces(node, smoothing):
+    enabled = str(smoothing).lower()
     with running(command('-p', 'post_processing.enable_shortcut:=false',
                          '-p', 'post_processing.resample_spacing:=0.5',
+                         '-p', f'post_processing.enable_joint_optimization:={enabled}',
                          '-p', f'post_processing.enable_arc_smoothing:={str(smoothing).lower()}')):
         harness = Harness(node)
         msg = map_message()

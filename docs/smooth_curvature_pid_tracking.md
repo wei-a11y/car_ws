@@ -3,7 +3,8 @@
 ## 本次行为
 
 保持 `Goal -> A* -> Path Processing -> controller -> Safety Gate -> /cmd_vel`。
-`/plan` 仍为 `nav_msgs/Path`，A* 提供几何路线，速度参考由控制器生成。
+`/plan` 仍为 `nav_msgs/Path`，A* 提供几何路线，路径处理给出局部可行速度上限，控制器生成最终速度参考。
+最新联合选弯、局部改线、共享约束与验证命令见 [联合优化说明](joint_turn_optimization.md)。
 本次没有 Git 暂存、本地提交或推送。
 
 - 路径处理启用对称回旋线入口、可选的定曲率圆弧、回旋线出口。
@@ -11,7 +12,7 @@
   重新计算入口/出口位置，不在原圆弧上仅修改曲率数字。
 - 搜索允许半径、过渡长度，并重新检查整段曲线及离散弦线。
   检查包络包含曲线到弦的偏差和数值积分误差。
-  无法满足空间、曲率变化率或碰撞约束时，保留停车转向点。
+  无法满足空间、碰撞或动态可行速度约束时，保留停车转向点。
   相邻转弯的实际裁剪长度参与空间分配。
 - 现有辅助 `PathProfile` 新增 `curvature_continuous`，明确节点曲率插值语义。
   `false` 保留旧圆弧的出段曲率语义；`true` 在普通节点间连续插值。
@@ -41,7 +42,8 @@
 | 文件 | 经常调整的参数 |
 | --- | --- |
 | `src/plan/config/astar.yaml` | `post_processing.arc_radius/arc_min_radius/arc_radius_max`、`transition_length/min_length`、`max_curvature_rate`、采样精度、半径与保留折角代价 |
-| `src/controller/config/lqr_tracker.yaml` | `v_nominal/v_max/w_max`、线加减速度、角加速度、横向加速度、前馈预算、`speed_pid.*`、LQR Q/R、增益表范围/点数、预瞄距离 |
+| `src/plan/config/motion_limits.yaml` | planner/controller 共享的 `v_nominal/v_max/w_max`、线加减速度、角加速度、横向加速度、前馈预算、`min_turn_speed` |
+| `src/controller/config/lqr_tracker.yaml` | `speed_pid.*`、LQR Q/R、增益表范围/点数、预瞄距离 |
 | `src/controller/config/path_tracking.yaml` | 记录话题、参考坐标系、输出路径、误差阈值、弯道判断阈值、停车判据、图像大小和分辨率 |
 
 `speed_pid.kd` 初始为 0，接口支持完整 PID。先调 P/I，确认速度反馈噪声后再增加 D。
@@ -56,7 +58,7 @@
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 colcon build --build-base build/smooth_pid --install-base install/smooth_pid \
-  --packages-select common_msg plan controller --cmake-args -DBUILD_TESTING=ON
+  --packages-select common_msg plan controller car_description --cmake-args -DBUILD_TESTING=ON
 source install/smooth_pid/setup.bash
 ```
 
@@ -70,6 +72,7 @@ ros2 launch controller path_tracking.launch.py \
 
 ```bash
 ros2 launch car_description navigation.launch.py controller_type:=lqr \
+  motion_limits_file:="$PWD/src/plan/config/motion_limits.yaml" \
   planner_params_file:="$PWD/src/plan/config/astar.yaml" \
   lqr_params_file:="$PWD/src/controller/config/lqr_tracker.yaml"
 ```

@@ -113,7 +113,9 @@ class PathRecorder(Node):
     def save_plan(self, profile=None):
         with (self.epoch_dir / 'planned_path.csv').open('w', newline='') as fp:
             writer = csv.writer(fp)
-            writer.writerow(['index', 'x', 'y', 'yaw', 'curvature', 'stop_required'])
+            writer.writerow(['index', 'x', 'y', 'yaw', 'curvature', 'stop_required',
+                             'segment_type', 'speed_limit', 'curvature_bound',
+                             'curvature_rate_bound'])
             for i, p in enumerate(self.path.poses):
                 q = p.pose.orientation
                 yaw = math.atan2(2 * (q.w * q.z + q.x * q.y),
@@ -121,18 +123,31 @@ class PathRecorder(Node):
                 writer.writerow([i, p.pose.position.x, p.pose.position.y,
                                  profile.tangent_yaw[i] if profile else yaw,
                                  profile.curvature[i] if profile else '',
-                                 int(profile.stop_required[i]) if profile else ''])
+                                 int(profile.stop_required[i]) if profile else '',
+                                 profile.segment_type[i] if profile and
+                                 profile.segment_type else '',
+                                 profile.speed_limit[i] if profile and profile.speed_limit else '',
+                                 profile.curvature_bound[i] if profile and
+                                 profile.curvature_bound else '',
+                                 profile.curvature_rate_bound[i] if profile and
+                                 profile.curvature_rate_bound else ''])
         (self.epoch_dir / 'path.json').write_text(json.dumps({
             'stamp_sec': self.path.header.stamp.sec,
             'stamp_nanosec': self.path.header.stamp.nanosec,
             'frame': self.frame, 'profile_received': profile is not None,
             'curvature_continuous': bool(profile.curvature_continuous) if profile else False,
         }, indent=2) + '\n')
+        if profile and profile.processing_report:
+            (self.epoch_dir / 'planning_report.json').write_text(profile.processing_report + '\n')
 
     def on_profile(self, message):
         n = len(message.path.poses)
         if not all(len(v) == n for v in (
                 message.tangent_yaw, message.curvature, message.stop_required)):
+            return
+        extended = (message.segment_type, message.speed_limit,
+                    message.curvature_bound, message.curvature_rate_bound)
+        if any(len(v) for v in extended) and not all(len(v) == n for v in extended):
             return
         self.pending_profile = message
         if self.path is None or message.path != self.path:

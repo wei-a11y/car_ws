@@ -1,4 +1,4 @@
-调整lqr的步骤
+调整lqr的步骤初版
 1.先开启记录路径的文件，准备记录路径
 colcon build
 source install/setup.bash
@@ -19,6 +19,23 @@ ros2 topic pub --once --use-sim-time --qos-durability volatile \
 4.通过图像分析小车运行曲线，然后来看如何修改lqr
 在新终端再执行
 python3 src/controller/scripts/analyze_path_tracking.py
+
+调整lqr第二版
+1.ros2 launch controller path_tracking.launch.py \
+  params_file:="$PWD/src/controller/config/path_tracking.yaml"
+2.ros2 launch car_description navigation.launch.py controller_type:=lqr \
+  motion_limits_file:="$PWD/src/plan/config/motion_limits.yaml" \
+  planner_params_file:="$PWD/src/plan/config/astar.yaml" \
+  lqr_params_file:="$PWD/src/controller/config/lqr_tracker.yaml"
+3.ros2 topic pub --once --use-sim-time --qos-durability volatile \
+  /goal_pose geometry_msgs/msg/PoseStamped \
+  "{header: {stamp: now, frame_id: map},
+    pose: {
+      position: {x: -0.87, y: 7.64, z: 0.0},
+      orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
+    }}"
+4.python3 src/controller/scripts/analyze_path_tracking.py \
+  --config src/controller/config/path_tracking.yaml
 
 问题
 1.需要时刻注意小车的位置，可用ros2 topic echo /amcl_pose --once查看小车实时位置

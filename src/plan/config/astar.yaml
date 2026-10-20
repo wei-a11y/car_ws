@@ -33,4 +33,25 @@ planner:
       transition_length: 0.20  # preferred length of each entry/exit transition, metres
       transition_min_length: 0.04  # search shorter transitions when space is limited
       transition_samples: 4  # bounded length search, preferred to minimum
-      max_curvature_rate: 30.0  # 1/m^2; reject transitions that change curvature too quickly
+      max_curvature_rate: 30.0  # comfort reference in joint mode; hard rejection in legacy baseline
+      enable_joint_optimization: true
+      enable_local_relocation: true
+      enable_arc_fallback: true
+      max_length_ratio: 1.10  # relative to the same-goal legacy safe baseline
+      local_shift_max: 0.20  # metres; separate from fallback_deviation
+      local_window_length: 2.0  # metres on each side of an edited corner
+      local_anchor_spacing: 0.25
+      local_shift_samples: 4
+      local_max_variants: 24
+      local_beam_width: 4
+      joint_max_candidates: 64
+      joint_max_labels: 64
+      joint_work_budget: 2000000
+      fallback_deviation: 0.01  # metres, certified relative to nominal line/circle geometry
+      fallback_blend_min: 0.01
+      fallback_blend_max: 0.08
+      fallback_blend_samples: 4
+      curve_max_depth: 20
+      clearance_target: 0.20  # distance from INFLATED blocked cells, not raw wall clearance
+      clearance_weight: 0.5  # seconds, normalized penalty
+      smoothness_weight: 0.2  # seconds, normalized penalty

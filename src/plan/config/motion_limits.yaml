@@ -1,0 +1,15 @@
+# Single source for planner feasibility and PID/LQR execution limits.
+# Load AFTER node/deployment YAML (ROS 2 Humble wildcard/CLI precedence).
+# Do not duplicate these keys in deployment overrides.
+/**:
+  ros__parameters:
+    v_nominal: 0.3  # comparison cruise speed; increase here for later speed experiments
+    v_max: 0.5
+    w_max: 0.60
+    linear_acceleration: 0.10
+    linear_deceleration: 0.15
+    angular_acceleration: 1.0
+    lateral_acceleration: 0.04
+    feedforward_angular_fraction: 0.75
+    angular_acceleration_fraction: 0.75
+    min_turn_speed: 0.03  # candidate feasibility floor, never a forced minimum command

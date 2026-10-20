@@ -200,12 +200,17 @@ TEST(SpeedPid, SmoothTurnsWorkAtCurrentAndHigherCruiseSpeed)
       {100, 100, 0.05, 0.0, 0.0, 0.0}, std::vector<std::int8_t>(10000, 0), 10000);
     plan::PathProcessingConfig pc{false, 0.1, 200, 100000};
     pc.enable_arc_smoothing = pc.enable_curvature_transition = true;
+    pc.enable_joint_optimization = true;
+    pc.enable_local_relocation = false;
+    pc.motion = controller::motion_limits(cfg);
     pc.arc_radius = 0.5;
     const auto processed = plan::process_path(
       grid, {{0.5, 1.5}, {2.5, 1.5}, {2.5, 3.5}}, pc);
     std::vector<controller::ReferencePoint> path;
     for (const auto & p : processed) {
-      path.push_back({p.x, p.y, p.tangent_yaw, p.curvature, p.stop_required});
+      path.push_back(
+        {p.x, p.y, p.tangent_yaw, p.curvature, p.stop_required,
+          p.speed_limit, p.curvature_bound, p.curvature_rate_bound, p.segment_type});
     }
     controller::LqrTracker tracker(cfg);
     tracker.set_profile(path, true);
@@ -258,4 +263,20 @@ TEST(SpeedPid, InterpolatesCurvatureAndBrakesForCurvatureRate)
     cfg.angular_acceleration_fraction * cfg.angular_acceleration / (2.0 * 20.0));
   EXPECT_LE(r.reference_speed, rate_cap + 1e-4);
   EXPECT_NEAR(r.feedforward_angular, r.command.v * r.reference_curvature, 1e-12);
+}
+
+TEST(ContinuousTracking, PlannerCapsCannotBeSkippedByLongPreview)
+{
+  auto cfg = curve_config();
+  cfg.feedforward_preview_distance = 1.;
+  controller::LqrTracker tracker(cfg);
+  tracker.set_profile(
+    {{0, 0, 0, 0, false, .2}, {.1, 0, 0, 0, false, .04},
+      {.2, 0, 0, 0, false, .2}, {2, 0, 0, 0, true, 0}}, true);
+  tracker.step({0, 0, 0}, {0, 0});
+  tracker.reset_speed_control();
+  const auto r = tracker.step({0, 0, 0}, {.15, 0});
+  EXPECT_EQ(r.state, controller::TrackerState::TRACKING);
+  EXPECT_LE(r.reference_speed, std::sqrt(.04 * .04 + 2 * cfg.linear_deceleration * .1));
+  EXPECT_LE(r.command.v, r.reference_speed + 1e-12);
 }

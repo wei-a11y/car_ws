@@ -1,4 +1,5 @@
 lqr_controller:
+  # Physical motion limits are loaded from plan/config/motion_limits.yaml.
   ros__parameters:
     use_sim_time: true
     path_topic: /plan
@@ -18,9 +19,6 @@ lqr_controller:
     allow_odom_fallback: false
     # New low-speed starting values for tuning, not measured real-hardware capabilities.
     control_period: 0.05
-    v_nominal: 0.15
-    v_max: 0.2  # <= existing base limit 0.5 m/s; tracker remains forward-only
-    w_max: 0.6  # <= existing base limit 1.0 rad/s
     q_lateral: 100.0
     q_heading: 25.0
     r_angular: 4.0
@@ -39,17 +37,11 @@ lqr_controller:
     # Conservative initial error budget; must be checked against inflation/localization uncertainty.
     max_tracking_error: 0.03
     max_path_points: 100000
-    # Continuous curve tracking. v_nominal above remains 0.15 m/s on straight sections.
-    linear_acceleration: 0.10  # m/s^2: acceleration after starts/stops and bends
-    linear_deceleration: 0.15  # m/s^2: backward braking envelope before curves/stops
-    angular_acceleration: 1.0  # rad/s^2: tracking command slew; safety stops override it
-    lateral_acceleration: 0.04  # m/s^2: v <= sqrt(a_lat / abs(curvature))
-    feedforward_angular_fraction: 0.75  # reserve 25 percent of w_max for feedback
+    # Continuous curve tracking; cruise/physical limits come from motion_limits.yaml.
     feedforward_preview_distance: 0.02  # metres, never crosses a required stop
     tracking_align_trigger: 1.0  # rad; large-error recovery only, not normal arc vertices
     max_reference_curvature: 20.0  # 1/m; reject invalid profile geometry above this value
     reference_heading_tolerance: 0.20  # rad; validate tangents against the associated Path
-    angular_acceleration_fraction: 0.75  # feedforward budget for a*kappa + v^2*kappa'
     gain_schedule_min_speed: 0.05  # below this use the lowest-speed lateral LQR gain
     gain_schedule_samples: 12  # precomputed across min speed .. v_max, interpolated online
     speed_pid:

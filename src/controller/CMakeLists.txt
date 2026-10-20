@@ -17,6 +17,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(common_msg REQUIRED)
+find_package(plan REQUIRED)
 
 
 # ============================================================
@@ -28,6 +29,8 @@ add_library(
   src/lqr_tracker.cpp
   src/lqr_continuous.cpp
 )
+target_link_libraries(lqr_tracker_core PUBLIC plan::planning_grid_core)
+ament_export_dependencies(plan)
 
 target_compile_features(
   lqr_tracker_core
@@ -213,7 +216,6 @@ if(BUILD_TESTING)
 
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
-  find_package(plan REQUIRED)
 
   ament_add_pytest_test(test_tracking_analysis test/test_tracking_analysis.py)
   ament_add_pytest_test(test_path_recorder test/test_path_recorder.py TIMEOUT 30

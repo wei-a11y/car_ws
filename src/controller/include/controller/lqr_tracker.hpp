@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <vector>
+#include "plan/motion_limits.hpp"
 
 namespace controller
 {
@@ -16,6 +17,9 @@ struct ReferencePoint
 {
   double x, y, yaw, curvature;
   bool stop_required;
+  double speed_limit = -1.0;  // -1 explicitly selects legacy local limit calculation
+  double curvature_bound = 0.0, curvature_rate_bound = 0.0;
+  unsigned segment_type = 0;
 };
 
 struct TrackerConfig
@@ -59,7 +63,15 @@ struct TrackerConfig
   double angular_acceleration_fraction = 0.75;  // reserve feedback authority
   double gain_schedule_min_speed = 0.05;
   std::size_t gain_schedule_samples = 12;
+  double min_turn_speed = 0.03;
 };
+
+inline plan::MotionLimits motion_limits(const TrackerConfig & c)
+{
+  return {c.v_nominal, c.v_max, c.w_max, c.linear_acceleration, c.linear_deceleration,
+    c.angular_acceleration, c.lateral_acceleration, c.feedforward_angular_fraction,
+    c.angular_acceleration_fraction, c.min_turn_speed};
+}
 
 struct DiscreteModel
 {

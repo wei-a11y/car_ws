@@ -10,3 +10,14 @@ bool[] stop_required
 # True: nodal curvature interpolates continuously between samples, except across stops.
 # False: legacy outgoing-primitive curvature is held on each segment.
 bool curvature_continuous
+# Optional extended metadata: all four arrays empty for a legacy producer, or all length N.
+# Values at i certify outgoing segment i -> i+1; terminal speed_limit is zero.
+uint8 LINE=0
+uint8 TRANSITION=1
+uint8 ARC_FALLBACK=2
+uint8[] segment_type
+float64[] speed_limit
+float64[] curvature_bound
+float64[] curvature_rate_bound
+# JSON planning summary and per-corner rejection counts; diagnostic only.
+string processing_report

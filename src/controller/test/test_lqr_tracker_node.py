@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 import math
 import os
+from pathlib import Path as FilePath
 import signal
 import subprocess
 import time
@@ -21,7 +22,9 @@ from tf2_ros import TransformBroadcaster
 
 def command(*overrides):
     return [os.environ['TRACKER_EXECUTABLE'], '--ros-args', '--params-file',
-            os.environ['TRACKER_CONFIG'], '-p', 'planning_frame:=control_debug',
+            os.environ['TRACKER_CONFIG'], '--params-file',
+            str(FilePath(__file__).parents[2] / 'plan/config/motion_limits.yaml'),
+            '-p', 'planning_frame:=control_debug',
             '-p', 'use_sim_time:=false', '-p', 'require_path_profile:=false', *overrides]
 
 
@@ -315,6 +318,17 @@ def test_continuous_profile_exact_pairing_invalid_arrays_and_publisher_loss(node
         invalid.curvature = []
         h.profiles.publish(invalid)
         h.wait('PATH_PROFILE_INVALID')
+        partial = straight_profile(replacement)
+        partial.speed_limit = [.1, 0.]
+        h.profiles.publish(partial)
+        h.wait('PATH_PROFILE_INVALID')
+        extended = straight_profile(replacement)
+        extended.segment_type = [0, 0]
+        extended.speed_limit = [.1, 0.]
+        extended.curvature_bound = [0., 0.]
+        extended.curvature_rate_bound = [0., 0.]
+        h.profiles.publish(extended)
+        h.wait('TRACKING', nonzero=True)
         h.profiles.publish(straight_profile(replacement))
         h.wait('TRACKING', nonzero=True)
         node.destroy_publisher(h.profiles)

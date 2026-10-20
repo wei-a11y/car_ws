@@ -110,6 +110,8 @@ private:
     c.speed_pid_correction_limit = parameter<double>("speed_pid.correction_limit");
     c.speed_pid_derivative_filter = parameter<double>("speed_pid.derivative_filter");
     c.angular_acceleration_fraction = parameter<double>("angular_acceleration_fraction");
+    c.min_turn_speed = parameter<double>("min_turn_speed");
+    plan::validate_motion_limits(motion_limits(c));
     c.gain_schedule_min_speed = parameter<double>("gain_schedule_min_speed");
     c.gain_schedule_samples = count("gain_schedule_samples");
     require_profile_ = parameter<bool>("require_path_profile");
@@ -404,12 +406,31 @@ private:
       {
         throw std::invalid_argument("Profile array lengths differ from associated Path");
       }
+      const bool extended = !profile.speed_limit.empty() || !profile.segment_type.empty() ||
+        !profile.curvature_bound.empty() || !profile.curvature_rate_bound.empty();
+      if (extended && (profile.speed_limit.size() != n || profile.segment_type.size() != n ||
+        profile.curvature_bound.size() != n || profile.curvature_rate_bound.size() != n))
+      {
+        throw std::invalid_argument("Partial or mismatched extended PathProfile arrays");
+      }
       std::vector<ReferencePoint> reference;
       for (std::size_t i = 0; i < n; ++i) {
         const auto & point = profile.path.poses[i].pose.position;
         reference.push_back(
           {point.x, point.y, profile.tangent_yaw[i], profile.curvature[i],
             static_cast<bool>(profile.stop_required[i])});
+        if (extended) {
+          auto & r = reference.back();
+          r.speed_limit = profile.speed_limit[i];
+          r.segment_type = profile.segment_type[i];
+          r.curvature_bound = profile.curvature_bound[i];
+          r.curvature_rate_bound = profile.curvature_rate_bound[i];
+          if (!std::isfinite(r.speed_limit) || r.speed_limit < 0.0 ||
+            (r.speed_limit == 0.0 && !r.stop_required))
+          {
+            throw std::invalid_argument("Nonfinite/negative or unexplained zero plan speed limit");
+          }
+        }
       }
       tracker_->set_profile(reference, profile.curvature_continuous);
       path_error_ = "PATH_UNAVAILABLE";

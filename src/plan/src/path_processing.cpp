@@ -1,6 +1,7 @@
 // Copyright 2026 car_ws contributors
 // SPDX-License-Identifier: Apache-2.0
 #include "plan/path_processing.hpp"
+#include "path_optimizer.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -391,6 +392,28 @@ double path_cost(
 
 void validate_path_processing_config(const PathProcessingConfig & config)
 {
+  validate_motion_limits(config.motion);
+  for (double value : {config.local_shift_max, config.local_window_length,
+      config.local_anchor_spacing, config.fallback_deviation, config.fallback_blend_min,
+      config.fallback_blend_max, config.clearance_target})
+  {
+    if (!std::isfinite(value) || value <= 0.0) {
+      throw std::invalid_argument("Joint geometry limits must be finite and positive");
+    }
+  }
+  if (!std::isfinite(config.max_length_ratio) || config.max_length_ratio < 1.0 ||
+    config.fallback_blend_min > config.fallback_blend_max || config.local_shift_samples == 0 ||
+    config.local_max_variants < 2 || config.local_beam_width == 0 ||
+    config.joint_max_candidates < 2 || config.joint_max_labels == 0 ||
+    config.joint_work_budget == 0 || config.fallback_blend_samples < 2 ||
+    config.curve_max_depth == 0 || config.curve_max_depth > 30 ||
+    !std::isfinite(config.clearance_weight) || config.clearance_weight < 0.0 ||
+    !std::isfinite(config.smoothness_weight) || config.smoothness_weight < 0.0 ||
+    (config.enable_joint_optimization &&
+    (!config.enable_arc_smoothing || !config.enable_curvature_transition)))
+  {
+    throw std::invalid_argument("Inconsistent joint search limits or smoothing mode");
+  }
   if (!std::isfinite(config.transition_length) ||
     !std::isfinite(config.transition_min_length) ||
     !std::isfinite(config.max_curvature_rate) || config.transition_min_length <= 0.0 ||
@@ -483,11 +506,28 @@ bool line_of_sight(const PlanningGrid & grid, Point2D from, Point2D to)
   return false;
 }
 
+bool curve_chord_is_free(const PlanningGrid & grid, Point2D from, Point2D to, double envelope)
+{
+  return std::isfinite(envelope) && envelope >= 0.0 &&
+         arc_chord_is_free(grid, from, to, envelope);
+}
+
 std::vector<PathPoint2D> process_path(
   const PlanningGrid & grid, const std::vector<Point2D> & raw,
   const PathProcessingConfig & config, PathProcessingStats * stats)
 {
   validate_path_processing_config(config);
+  if (config.enable_joint_optimization) {
+    auto legacy = config;
+    legacy.enable_joint_optimization = false;
+    PathProcessingStats baseline_stats;
+    const auto baseline = process_path(grid, raw, legacy, &baseline_stats);
+    auto result = optimize_joint_path(grid, raw, baseline, config, baseline_stats);
+    if (stats != nullptr) {
+      *stats = std::move(baseline_stats);
+    }
+    return result;
+  }
   PathProcessingStats processing_stats;
   if (stats != nullptr) {
     *stats = processing_stats;

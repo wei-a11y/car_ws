@@ -89,6 +89,44 @@ public:
     processing_config_.transition_samples = static_cast<std::size_t>(transition_samples);
     processing_config_.max_curvature_rate =
       read_parameter<double>("post_processing.max_curvature_rate");
+    auto & m = processing_config_.motion;
+    m.v_nominal = read_parameter<double>("v_nominal");
+    m.v_max = read_parameter<double>("v_max");
+    m.w_max = read_parameter<double>("w_max");
+    m.linear_acceleration = read_parameter<double>("linear_acceleration");
+    m.linear_deceleration = read_parameter<double>("linear_deceleration");
+    m.angular_acceleration = read_parameter<double>("angular_acceleration");
+    m.lateral_acceleration = read_parameter<double>("lateral_acceleration");
+    m.feedforward_angular_fraction = read_parameter<double>("feedforward_angular_fraction");
+    m.angular_acceleration_fraction = read_parameter<double>("angular_acceleration_fraction");
+    m.min_turn_speed = read_parameter<double>("min_turn_speed");
+    const auto positive_count = [this](const std::string & name) {
+        const auto value = read_parameter<std::int64_t>(name);
+        if (value <= 0) {throw std::invalid_argument(name + " must be positive");}
+        return static_cast<std::size_t>(value);
+      };
+    auto & c = processing_config_;
+    c.enable_joint_optimization = read_parameter<bool>("post_processing.enable_joint_optimization");
+    c.enable_local_relocation = read_parameter<bool>("post_processing.enable_local_relocation");
+    c.enable_arc_fallback = read_parameter<bool>("post_processing.enable_arc_fallback");
+    c.max_length_ratio = read_parameter<double>("post_processing.max_length_ratio");
+    c.local_shift_max = read_parameter<double>("post_processing.local_shift_max");
+    c.local_window_length = read_parameter<double>("post_processing.local_window_length");
+    c.local_anchor_spacing = read_parameter<double>("post_processing.local_anchor_spacing");
+    c.local_shift_samples = positive_count("post_processing.local_shift_samples");
+    c.local_max_variants = positive_count("post_processing.local_max_variants");
+    c.local_beam_width = positive_count("post_processing.local_beam_width");
+    c.joint_max_candidates = positive_count("post_processing.joint_max_candidates");
+    c.joint_max_labels = positive_count("post_processing.joint_max_labels");
+    c.joint_work_budget = positive_count("post_processing.joint_work_budget");
+    c.fallback_deviation = read_parameter<double>("post_processing.fallback_deviation");
+    c.fallback_blend_min = read_parameter<double>("post_processing.fallback_blend_min");
+    c.fallback_blend_max = read_parameter<double>("post_processing.fallback_blend_max");
+    c.fallback_blend_samples = positive_count("post_processing.fallback_blend_samples");
+    c.curve_max_depth = positive_count("post_processing.curve_max_depth");
+    c.clearance_target = read_parameter<double>("post_processing.clearance_target");
+    c.clearance_weight = read_parameter<double>("post_processing.clearance_weight");
+    c.smoothness_weight = read_parameter<double>("post_processing.smoothness_weight");
     validate_path_processing_config(processing_config_);
     const auto map_topic = read_parameter<std::string>("inflated_grid_topic");
     const auto goal_topic = read_parameter<std::string>("goal_topic");
@@ -303,6 +341,15 @@ private:
         profile.tangent_yaw.push_back(point.tangent_yaw);
         profile.curvature.push_back(point.curvature);
         profile.stop_required.push_back(point.stop_required);
+        if (processing_config_.enable_joint_optimization) {
+          profile.segment_type.push_back(point.segment_type);
+          profile.speed_limit.push_back(point.speed_limit);
+          profile.curvature_bound.push_back(point.curvature_bound);
+          profile.curvature_rate_bound.push_back(point.curvature_rate_bound);
+        }
+      }
+      if (processing_config_.enable_joint_optimization) {
+        profile.processing_report = processing_report(processing_stats);
       }
       profile_pub_->publish(profile);
       path_pub_->publish(path);
@@ -315,7 +362,10 @@ private:
         std::to_string(processing_stats.retained_corners) + "; space limited=" +
         std::to_string(processing_stats.space_limited_corners) + "; collision limited=" +
         std::to_string(processing_stats.collision_limited_corners) + "; shortcut recovered=" +
-        std::to_string(processing_stats.shortcut_recovered));
+        std::to_string(processing_stats.shortcut_recovered) + "; joint stops=" +
+        std::to_string(processing_stats.retained_corners) + "; search work=" +
+        std::to_string(processing_stats.work_used) + "; budget limited=" +
+        std::to_string(processing_stats.budget_exhausted));
     } catch (const tf2::TransformException & error) {
       fail(PlanStatus::TF_UNAVAILABLE, error.what());
     } catch (const std::exception & error) {

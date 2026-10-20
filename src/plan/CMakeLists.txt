@@ -31,7 +31,7 @@ ament_target_dependencies(planning_grid_node rclcpp rcl_interfaces nav_msgs)
 
 add_library(astar_core src/astar.cpp)
 target_link_libraries(astar_core PUBLIC planning_grid_core)
-add_library(path_processing_core src/path_processing.cpp)
+add_library(path_processing_core src/path_processing.cpp src/path_optimizer.cpp)
 target_link_libraries(path_processing_core PUBLIC planning_grid_core)
 add_executable(astar_node src/astar_node.cpp)
 target_link_libraries(astar_node astar_core path_processing_core)
@@ -59,6 +59,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_astar astar_core)
   ament_add_gtest(test_path_processing test/test_path_processing.cpp)
   target_link_libraries(test_path_processing path_processing_core astar_core)
+  ament_add_gtest(test_joint_turns test/test_joint_turns.cpp)
+  target_link_libraries(test_joint_turns path_processing_core)
   ament_add_pytest_test(test_astar_node test/test_astar_node.py
     TIMEOUT 60
     ENV

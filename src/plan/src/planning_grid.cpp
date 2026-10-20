@@ -81,6 +81,44 @@ void PlanningGrid::validate_config(const GridConfig & config)
   }
 }
 
+double PlanningGrid::clearance_at(double wx, double wy) const
+{
+  std::size_t cx, cy;
+  if (!world_to_cell(wx, wy, cx, cy)) {
+    return 0.0;
+  }
+  const auto & g = geometry_;
+  if (clearance_.empty()) {
+    clearance_.resize(inflated_.size());
+    std::vector<double> line(g.width);
+    for (std::size_t y = 0; y < g.height; ++y) {
+      for (std::size_t x = 0; x < g.width; ++x) {
+        line[x] = is_blocked(x, y) ? 0.0 : std::numeric_limits<double>::infinity();
+      }
+      const auto row = distance_transform(line);
+      std::copy(row.begin(), row.end(), clearance_.begin() + y * g.width);
+    }
+    line.resize(g.height);
+    for (std::size_t x = 0; x < g.width; ++x) {
+      for (std::size_t y = 0; y < g.height; ++y) {
+        line[y] = clearance_[y * g.width + x];
+      }
+      const auto column = distance_transform(line);
+      for (std::size_t y = 0; y < g.height; ++y) {
+        const double edge = g.resolution * std::min(
+          {x + 0.5, y + 0.5, g.width - x - 0.5, g.height - y - 0.5});
+        clearance_[y * g.width + x] = std::max(
+          0.0, std::min(
+            edge, g.resolution * (std::sqrt(column[y]) - std::sqrt(2.0) / 2.0)));
+      }
+    }
+  }
+  const auto centre = cell_to_world(cx, cy);
+  return std::max(
+    0.0, clearance_[cy * g.width + cx] -
+    std::hypot(wx - centre.first, wy - centre.second));
+}
+
 PlanningGrid::PlanningGrid(
   GridGeometry geometry, std::vector<std::int8_t> occupancy, GridConfig config)
 : geometry_(geometry), raw_(std::move(occupancy))

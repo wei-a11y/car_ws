@@ -24,6 +24,7 @@ void LqrTracker::set_profile(const std::vector<ReferencePoint> & path, bool cont
   std::vector<double> deceleration(path.size(), config_.linear_deceleration);
   std::vector<double> segment_limits(path.size(), config_.v_max);
   std::vector<Point2D> points;
+  const auto motion = motion_limits(config_);
   for (std::size_t i = 0; i < path.size(); ++i) {
     const auto & point = path[i];
     if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.yaw) ||
@@ -32,6 +33,16 @@ void LqrTracker::set_profile(const std::vector<ReferencePoint> & path, bool cont
     {
       throw std::invalid_argument("Invalid reference geometry or curvature");
     }
+    if (!std::isfinite(point.speed_limit) || point.speed_limit < -1.0 ||
+      (point.speed_limit < 0.0 && point.speed_limit != -1.0) ||
+      !std::isfinite(point.curvature_bound) || point.curvature_bound < 0.0 ||
+      !std::isfinite(point.curvature_rate_bound) || point.curvature_rate_bound < 0.0 ||
+      point.segment_type > 2 ||
+      (point.speed_limit >= 0.0 && point.curvature_bound + 1e-8 < std::abs(point.curvature)))
+    {
+      throw std::invalid_argument("Invalid extended reference limits or segment type");
+    }
+    if (point.speed_limit >= 0.0) {limits[i] = std::min(limits[i], point.speed_limit);}
     points.push_back({point.x, point.y});
     // Include incoming and outgoing curvature so braking begins before an entry transition.
     const double curvature = std::max(
@@ -60,21 +71,22 @@ void LqrTracker::set_profile(const std::vector<ReferencePoint> & path, bool cont
       throw std::invalid_argument("Reference tangents disagree with Path or duplicate points");
     }
     segments.push_back({points[i - 1], points[i], length, yaw, lengths[i - 1]});
-    const double peak = std::max(std::abs(path[i - 1].curvature), std::abs(point.curvature));
-    const double budget = config_.angular_acceleration_fraction * config_.angular_acceleration;
-    if (peak > 0.0) {
-      acceleration[i] = std::min(acceleration[i], budget / (2.0 * peak));
-      deceleration[i] = std::min(deceleration[i], budget / (2.0 * peak));
-    }
-    if (continuous_curvature && !point.stop_required) {
-      const double rate = std::abs(point.curvature - path[i - 1].curvature) / length;
-      if (rate > 0.0) {
-        const double cap = std::sqrt(budget / (2.0 * rate));
-        limits[i - 1] = std::min(limits[i - 1], cap);
-        limits[i] = std::min(limits[i], cap);
-        segment_limits[i] = cap;
-      }
-    }
+    const auto & previous = path[i - 1];
+    const double peak = std::max(
+      {std::abs(previous.curvature), std::abs(point.curvature),
+        previous.curvature_bound});
+    const double measured_rate = continuous_curvature && !point.stop_required ?
+      std::abs(point.curvature - previous.curvature) / length : 0.0;
+    const auto bound = plan::curve_limits(
+      motion, peak,
+      std::max(measured_rate, previous.curvature_rate_bound));
+    acceleration[i] = bound.acceleration;
+    deceleration[i] = bound.deceleration;
+    const double cap = previous.speed_limit >= 0.0 ?
+      std::min(bound.speed, previous.speed_limit) : bound.speed;
+    limits[i - 1] = std::min(limits[i - 1], cap);
+    limits[i] = std::min(limits[i], cap);
+    segment_limits[i] = cap;
   }
   // Backward braking envelope incorporates every future curve and mandatory stop.
   for (std::size_t i = path.size() - 1; i > 0; --i) {

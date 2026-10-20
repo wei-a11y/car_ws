@@ -28,6 +28,8 @@ def generate_launch_description():
         DeclareLaunchArgument('navigation_params_file',
                              default_value=str(share / 'config/navigation_baseline.yaml')),
         DeclareLaunchArgument('planner_params_file', default_value=str(plan / 'config/astar.yaml')),
+        DeclareLaunchArgument('motion_limits_file',
+                             default_value=str(plan / 'config/motion_limits.yaml')),
         DeclareLaunchArgument('lqr_params_file',
                              default_value=str(controller / 'config/lqr_tracker.yaml')),
         DeclareLaunchArgument('enable', default_value='true',
@@ -56,7 +58,8 @@ def generate_launch_description():
         Node(package='plan', executable='planning_grid_node', name='planning_grid',
              output='screen', parameters=[str(plan / 'config/planning_grid.yaml'), config]),
         Node(package='plan', executable='astar_node', name='planner', output='screen',
-             parameters=[LaunchConfiguration('planner_params_file'), config]),
+             parameters=[LaunchConfiguration('planner_params_file'), config,
+                         LaunchConfiguration('motion_limits_file')]),
 
      Node(
      package='controller',
@@ -89,6 +92,7 @@ def generate_launch_description():
      parameters=[
           LaunchConfiguration('lqr_params_file'),
           config,
+          LaunchConfiguration('motion_limits_file'),
      ]
      ),
         Node(package='controller', executable='safety_gate_node', name='safety_gate',
