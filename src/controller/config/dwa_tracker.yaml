@@ -31,10 +31,10 @@ dwa_controller:
     # DWA
     # ==============================
 
-    max_linear: 0.50  # 提高到 0.50 m/s；仍低于安全门 0.60 上限
-    min_linear: 0.06
+    max_linear: 0.10 # 提高到 0.50 m/s；仍低于安全门 0.60 上限
+    min_linear: 0.03
 
-    max_angular: 0.8
+    max_angular: 0.30
 
     sim_time: 1.0
     sim_dt: 0.05

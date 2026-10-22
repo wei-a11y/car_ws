@@ -31,10 +31,10 @@ amcl:
     update_min_a: 0.02
     resample_interval: 1
 
-    set_initial_pose: true
+    # set_initial_pose: true
 
-    initial_pose:
-      x: -10.833
-      y: -5.900
-      z: 0.0
-      yaw: -1.948
+    # initial_pose:
+    #   x: -10.833
+    #   y: -5.900
+    #   z: 0.0
+    #   yaw: -1.948

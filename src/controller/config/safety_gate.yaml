@@ -8,7 +8,7 @@ safety_gate:
     status_topic: /controller/safety/status
     debug_topic: /controller/safety/min_range
     base_frame: base_footprint
-    scan_frame: laser_link
+    scan_frame: laser
     forward_sector_half_angle: 0.7853981633974483  # +/-45 deg in base_frame
     stop_distance: 0.2  # m from LiDAR origin along a ray, NOT bumper clearance
     release_distance: 0.65  # must exceed stop_distance

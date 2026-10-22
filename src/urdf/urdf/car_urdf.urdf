@@ -522,7 +522,7 @@
       xyz="0 0 0" />
   </joint>
   <link
-    name="laser_link">
+    name="laser">
     <inertial>
       <origin
         xyz="2.77555756156289E-17 -9.55395358154788E-18 0.000358152290849761"
@@ -565,12 +565,12 @@
     name="laser_joint"
     type="fixed">
     <origin
-      xyz="0.155 0 0.1855"
-      rpy="0 0 3.14" />
+      xyz="-0.06 0.0 0.0475"
+      rpy="0 0 0" />
     <parent
       link="base_link" />
     <child
-      link="laser_link" />
+      link="laser" />
     <axis
       xyz="0 0 0" />
   </joint>
@@ -1313,7 +1313,7 @@
     <mu2>0.001</mu2>
   </gazebo>
 
-  <gazebo reference="laser_link">  <!-- 将 "laser_link" 替换为你的雷达link名称 -->
+  <gazebo reference="laser">  <!-- 将 "laser" 替换为你的雷达link名称 -->
   <sensor name="laserscan" type="gpu_ray">
     <!-- 基本设置 -->
     <always_on>true</always_on>      <!-- 是否始终开启 -->
@@ -1353,7 +1353,7 @@
         <remapping>~/out:=scan</remapping>              <!-- 话题重映射，输出到/scan -->
       </ros>
       <output_type>sensor_msgs/LaserScan</output_type> <!-- 消息类型 -->
-      <frame_name>laser_link</frame_name>              <!-- 数据对应的坐标系 -->
+      <frame_name>laser</frame_name>              <!-- 数据对应的坐标系 -->
     </plugin>
 
   </sensor>
