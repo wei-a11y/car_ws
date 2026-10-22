@@ -38,7 +38,15 @@ target_link_libraries(astar_node astar_core path_processing_core)
 ament_target_dependencies(astar_node
   rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs diagnostic_msgs tf2 tf2_ros tf2_geometry_msgs
 )
+set_target_properties(
+    planning_grid_core
+    PROPERTIES POSITION_INDEPENDENT_CODE ON
+)
 
+set_target_properties(
+    path_processing_core
+    PROPERTIES POSITION_INDEPENDENT_CODE ON
+)
 install(TARGETS planning_grid_core astar_core path_processing_core EXPORT planning_grid_coreTargets
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

@@ -10,7 +10,7 @@ planning_grid:
     unknown_is_obstacle: true
     # Confirmed from current URDF collision envelope; see tools/verify_robot_radius.py.
     # Conservative radius 0.354360458 m rounded UP to the next millimetre.
-    robot_radius: 0.355
-    safety_margin: 0.02
+    robot_radius: 0.0001
+    safety_margin: 0.0
     inflate_map_boundary: true
     max_cells: 4000000

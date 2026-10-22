@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""Publish one of the configured A/B/C navigation goals to /goal_pose."""
+
+import math
+import time
+from pathlib import Path
+
+import rclpy
+import yaml
+from ament_index_python.packages import get_package_share_directory
+from geometry_msgs.msg import PoseStamped
+from rclpy.node import Node
+
+
+class GoalSelector(Node):
+    def __init__(self):
+        super().__init__('goal_selector')
+
+        self.declare_parameter('target', 'A')
+        self.declare_parameter('config_file', '')
+        self.declare_parameter('frame_id', 'map')
+        self.declare_parameter('repeat_count', 3)
+        self.declare_parameter('publish_interval', 0.5)
+        self.declare_parameter('subscriber_wait_timeout', 10.0)
+
+        self.target = str(self.get_parameter('target').value).strip().upper()
+        self.frame_id = str(self.get_parameter('frame_id').value).strip()
+        self.repeat_count = int(self.get_parameter('repeat_count').value)
+        self.publish_interval = float(self.get_parameter('publish_interval').value)
+        self.subscriber_wait_timeout = float(
+            self.get_parameter('subscriber_wait_timeout').value
+        )
+
+        if not self.frame_id:
+            raise ValueError('frame_id 不能为空')
+        if self.repeat_count < 1:
+            raise ValueError('repeat_count 必须至少为 1')
+        if self.publish_interval <= 0.0:
+            raise ValueError('publish_interval 必须大于 0')
+        if self.subscriber_wait_timeout <= 0.0:
+            raise ValueError('subscriber_wait_timeout 必须大于 0')
+
+        config_arg = str(self.get_parameter('config_file').value).strip()
+        config_path = (
+            Path(config_arg).expanduser()
+            if config_arg
+            else Path(get_package_share_directory('task')) / 'config' / 'waypoints.yaml'
+        )
+        config_path = config_path.resolve()
+
+        try:
+            with config_path.open('r', encoding='utf-8') as stream:
+                config = yaml.safe_load(stream)
+        except (OSError, yaml.YAMLError) as exc:
+            raise ValueError(f'读取目标配置失败：{config_path}: {exc}') from exc
+
+        goals = config.get('goals') if isinstance(config, dict) else None
+        if not isinstance(goals, dict):
+            raise ValueError(f'{config_path} 缺少 goals 字典')
+        if self.target not in goals:
+            raise ValueError(
+                f'未知目标 {self.target!r}。可选目标：{", ".join(sorted(goals))}'
+            )
+
+        goal = goals[self.target]
+        if not isinstance(goal, dict):
+            raise ValueError(f'目标 {self.target} 的配置必须是字典')
+        values = {}
+        for key in ('x', 'y', 'yaw'):
+            value = goal.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(
+                    f'目标 {self.target} 的 {key} 尚未填写或不是数字。'
+                    f'请编辑 {config_path}，按新地图填写 x、y、yaw。'
+                )
+            value = float(value)
+            if not math.isfinite(value):
+                raise ValueError(f'目标 {self.target} 的 {key} 必须是有限数值')
+            values[key] = value
+
+        self.x = values['x']
+        self.y = values['y']
+        self.yaw = values['yaw']
+        self.publisher = self.create_publisher(PoseStamped, '/goal_pose', 10)
+        self.start_time = time.monotonic()
+        self.sent_count = 0
+        self.done = False
+        self.timer = self.create_timer(self.publish_interval, self._tick)
+
+        self.get_logger().info(
+            f'已选择目标 {self.target}: frame={self.frame_id}, '
+            f'x={self.x:.3f}, y={self.y:.3f}, yaw={self.yaw:.3f} rad。'
+            '等待 /goal_pose 订阅者连接……'
+        )
+
+    def _tick(self):
+        if self.done:
+            return
+
+        if self.publisher.get_subscription_count() == 0:
+            elapsed = time.monotonic() - self.start_time
+            if elapsed >= self.subscriber_wait_timeout:
+                self.get_logger().error(
+                    '等待 /goal_pose 订阅者超时。请先启动导航，再运行 goal_selector。'
+                )
+                self.done = True
+                self.timer.cancel()
+            return
+
+        msg = PoseStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.frame_id
+        msg.pose.position.x = self.x
+        msg.pose.position.y = self.y
+        msg.pose.position.z = 0.0
+        msg.pose.orientation.x = 0.0
+        msg.pose.orientation.y = 0.0
+        msg.pose.orientation.z = math.sin(self.yaw / 2.0)
+        msg.pose.orientation.w = math.cos(self.yaw / 2.0)
+        self.publisher.publish(msg)
+        self.sent_count += 1
+        self.get_logger().info(
+            f'已发布目标 {self.target} 到 /goal_pose '
+            f'({self.sent_count}/{self.repeat_count})'
+        )
+
+        if self.sent_count >= self.repeat_count:
+            self.get_logger().info('目标发布完成。')
+            self.done = True
+            self.timer.cancel()
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = None
+    try:
+        node = GoalSelector()
+        while rclpy.ok() and not node.done:
+            rclpy.spin_once(node, timeout_sec=0.2)
+    except (ValueError, TypeError) as exc:
+        print(f'[goal_selector] 配置错误：{exc}')
+    finally:
+        if node is not None:
+            node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

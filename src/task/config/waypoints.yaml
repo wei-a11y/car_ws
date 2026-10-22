@@ -1,0 +1,16 @@
+# 预设导航目标，坐标单位为 m，yaw 单位为 rad。
+# 坐标系默认为 map，必须根据当前使用的地图和 RViz 的 map 坐标填写。
+# 不要在未填写坐标时启动目标节点；x/y/yaw 为 null 时节点会拒绝发布。
+goals:
+  A:
+    x: null       # 例如 1.20
+    y: null       # 例如 -0.50
+    yaw: null     # 例如 1.5708（约 90 度）
+  B:
+    x: null
+    y: null
+    yaw: null
+  C:
+    x: null
+    y: null
+    yaw: null

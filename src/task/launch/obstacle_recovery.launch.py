@@ -102,7 +102,7 @@ def generate_launch_description():
         'gui': ('true', 'Show Gazebo client'),
         'rviz': ('true', 'Show navigation RViz'),
         'world': (str(car / 'world_model/model.world'), 'Read-only source world'),
-        'map_yaml': (str(car / 'map/edited/edited.yaml'), 'Map server YAML'),
+        'map_yaml': (str(car / 'map/tab/room.yaml'), 'Map server YAML'),
         'amcl_params_file': (str(car / 'config/amcl.yaml'), 'AMCL parameters'),
         'navigation_params_file': (str(car / 'config/navigation_baseline.yaml'),
                                    'Existing navigation deployment overrides'),

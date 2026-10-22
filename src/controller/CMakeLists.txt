@@ -52,18 +52,18 @@ target_link_libraries(
   lqr_tracker_core
 )
 
-ament_target_dependencies(
-  lqr_tracker_node
-  rclcpp
-  rcl_interfaces
-  geometry_msgs
-  nav_msgs
-  std_msgs
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
+ament_target_dependencies(lqr_tracker_node
+  rclcpp rcl_interfaces geometry_msgs nav_msgs std_msgs diagnostic_msgs std_srvs tf2 tf2_ros tf2_geometry_msgs
 )
-
+install(TARGETS lqr_tracker_core EXPORT lqr_tracker_coreTargets
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+install(TARGETS lqr_tracker_node DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY include/ DESTINATION include)
+install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
+ament_export_targets(lqr_tracker_coreTargets HAS_LIBRARY_TARGET)
 
 # ============================================================
 # DWA

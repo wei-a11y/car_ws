@@ -13,7 +13,11 @@ target_link_libraries(_planning_eval PRIVATE plan::planning_grid_core
 ament_get_python_install_dir(PYTHON_INSTALL_DIR)
 install(TARGETS _planning_eval LIBRARY DESTINATION ${PYTHON_INSTALL_DIR})
 ament_python_install_package(task_runtime)
-install(PROGRAMS scripts/task_node scripts/recovery_task_node scripts/recovery_scenario
+install(PROGRAMS
+  scripts/task_node
+  scripts/recovery_task_node
+  scripts/recovery_scenario
+  scripts/goal_selector
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 install(FILES README.md OBSTACLE_RECOVERY.md DESTINATION share/${PROJECT_NAME})

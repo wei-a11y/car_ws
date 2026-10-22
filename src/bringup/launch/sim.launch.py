@@ -222,7 +222,7 @@ def generate_launch_description():
             "rviz_config", default_value=str(package_share / "config" / "car.rviz"),
         ),
         DeclareLaunchArgument(
-            "map_yaml", default_value=str(package_share / "map" / "edited" / "edited.yaml"),
+            "map_yaml", default_value=str(package_share / "map" / "tab" / "room.yaml"),
         ),
         DeclareLaunchArgument(
             'with_arm', default_value='false',
