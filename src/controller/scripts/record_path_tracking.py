@@ -11,14 +11,17 @@ from pathlib import Path
 import signal
 
 from common_msg.msg import PathProfile
-from nav_msgs.msg import Path as PathMsg
+from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import OccupancyGrid, Path as PathMsg
 import rclpy
 from rclpy.node import Node
+from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import Float64MultiArray, String
 
 from tracking_analysis import load_config
+from tracking_metadata import MetadataCapture
 
 
 class PathRecorder(Node):
@@ -59,6 +62,17 @@ class PathRecorder(Node):
         self.create_subscription(Float64MultiArray, param('tracking_topic'), self.on_tracking, 10)
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.create_subscription(String, param('status_topic'), self.on_status, qos)
+        self.metadata = None
+        if param('capture_metadata'):
+            period = float(param('metadata_poll_period'))
+            if not math.isfinite(period) or period <= 0:
+                raise ValueError('metadata_poll_period must be positive')
+            self.metadata = MetadataCapture(self, param('metadata_nodes'),
+                                            float(param('metadata_timeout')))
+            self.create_subscription(OccupancyGrid, param('map_topic'), self.metadata.on_map, qos)
+            self.create_subscription(PoseStamped, param('goal_topic'), self.metadata.on_goal, 10)
+            self.create_timer(period, self.metadata.poll,
+                              clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.create_timer(self.flush_period, self.flush)
         (self.directory / 'manifest.json').write_text(json.dumps({
             'frame': self.frame, 'pose_source': 'controller TF localization estimate',
@@ -105,9 +119,11 @@ class PathRecorder(Node):
         self.writer = csv.DictWriter(self.fp, fieldnames=[
             'time', 'ros_time', 'x', 'y', 'yaw', 'progress', 'lateral_error', 'heading_error',
             'v_ref', 'v_cmd', 'w_cmd', 'v_actual', 'w_actual', 'curvature', 'w_ff',
-            'remaining', 'state', 'geometry_valid'])
+            'remaining', 'state', 'geometry_valid', 'nearest_x', 'nearest_y', 'position_error'])
         self.writer.writeheader()
         self.event('PATH_RECEIVED')
+        if self.metadata is not None:
+            self.metadata.start(self.epoch_dir, message)
         self.get_logger().info(f'New path epoch: {self.epoch_dir}')
 
     def save_plan(self, profile=None):
@@ -188,6 +204,11 @@ class PathRecorder(Node):
         row.update(time=now - self.start, ros_time=now, x=values['pose_x'], y=values['pose_y'],
                    yaw=values['pose_yaw'], lateral_error=values['ey'],
                    heading_error=values['etheta'])
+        projection = [values.get(key) for key in ('nearest_x', 'nearest_y')]
+        if all(v is not None and math.isfinite(v) for v in projection):
+            row.update(nearest_x=projection[0], nearest_y=projection[1],
+                       position_error=math.hypot(values['pose_x'] - projection[0],
+                                                 values['pose_y'] - projection[1]))
         self.writer.writerow(row)
         self.finished = int(values['state']) in (4, 5)
 
@@ -197,6 +218,8 @@ class PathRecorder(Node):
                 fp.flush()
 
     def destroy_node(self):
+        if self.metadata is not None:
+            self.metadata.close()
         self.flush()
         for fp in self.files:
             if not fp.closed:

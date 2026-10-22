@@ -8,17 +8,43 @@ path_recorder:
     status_topic: /controller/lqr/status
     output_dir: data/path_record
     flush_period: 0.5  # ROS seconds; shutdown always flushes
+    capture_metadata: true
+    metadata_nodes: [/planner, /lqr_controller, /planning_grid, /safety_gate, /diff_drive_controller]
+    metadata_timeout: 5.0  # wall seconds per node and path; never blocks recording
+    metadata_poll_period: 0.1
+    map_topic: /plan/inflated_grid
+    goal_topic: /goal_pose
 
 analysis:
   ros__parameters:
-    error_axis: progress  # progress or time; time shows repeated stops more clearly
+    error_axis: progress  # retained for legacy configs; new exports use plot_axes below
     error_axis_margin: 0.15  # vertical padding beyond data/threshold; shading never sets scale
     lateral_error_threshold: 0.10  # metres, assessment threshold, does not change controller limits
     heading_error_threshold: 0.10  # radians
+    position_error_threshold: 0.10  # metres, distance to controller's selected projection
     curve_curvature_threshold: 0.10  # 1/m
     stopped_speed_threshold: 0.01  # m/s
     stop_min_duration: 0.30  # seconds; exclude brief startup transients
     stop_exclusion_distance: 0.05  # metres from start/next required stop
-    figure_size: [12.0, 15.0]
+    figure_size: [12.0, 5.0]
+    font_size: 12.0
+    font_families: [Noto Sans CJK JP, Noto Sans CJK SC, WenQuanYi Micro Hei, SimHei, DejaVu Sans]
+    line_width: 1.5
+    event_label_spacing_fraction: 0.012  # group nearby event labels, retain all event lines/data
     point_size: 3.0
-    dpi: 160
+    dpi: 300
+    formats: [png]  # independent Chinese-labelled PNGs; 12 x 5 inches at 300 DPI
+    plot_axes: [progress]  # scalar plots use path progress only
+    plot_quantities: [longitudinal_speed, angular_velocity, curvature, acceleration,
+                      lateral_error, heading_error, position_error]
+    plot_trajectory: true
+    plot_tracking_errors: false  # keep full-route error plots only
+    plot_speed_position: true  # one full-route dual-axis speed / position-distance figure
+    combined_formats: [png, svg]  # SVG keeps curves and Chinese labels sharp when enlarged
+    combined_legend_columns: 4  # place the combined legend below the plot, clear of curves
+    max_sample_gap: 0.20  # seconds; do not bridge missing data
+    acceleration_filter_tau: 0.15
+    acceleration_threshold: 0.02  # m/s^2
+    motion_min_duration: 0.20
+    turn_merge_distance: 0.30  # metres; BOTH distance and time must permit merging
+    turn_merge_time: 0.50

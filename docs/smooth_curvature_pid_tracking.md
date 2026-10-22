@@ -109,25 +109,15 @@ python3 src/controller/scripts/analyze_path_tracking.py \
 记录器应在目标发送之前启动。重复使用时间戳的路径拒绝记录，避免旧样本错配；
 正常 planner 用规划时间戳标识路径。
 
-`tracking_overview.png` 包含且仅包含三类图：
+新版输出为 `figures/` 下的独立中文 PNG，默认 300 DPI（3600×1500 像素）。
+各物理量仅输出一张全程路径进度轴图；`plot_tracking_errors: false` 关闭额外的正常跟踪阶段误差图，分阶段统计仍保留。取消时间轴和逐弯局部图。
+新增全程纵向速度与位置距离误差双纵轴合并图，同时输出 PNG 和可无损放大的 SVG。
+包括地图 XY 路径叠加、纵向速度、角速度、曲率、加速度估计和三类误差图。重绘后清理已知旧图，保留原始 CSV/JSON 和任意用户文件。
+统计、快照、兼容规则及显式两次实验对比命令见 [独立高清图表说明](tracking_independent_plots.md)。
 
-1. 整条处理后参考路径与实际 TF 轨迹的等比例叠加图，颜色表示横向误差，标出必要停车点和终点。
-2. 带正负号的横向误差折线图。
-3. 带正负号的航向误差折线图。
-
-误差横轴默认路径进度；把 YAML 中 `analysis.error_axis` 改为 `time` 可以查看停顿期间的变化。
-曲线区域以背景色标出。误差直接使用控制器当前周期的局部进度投影结果，
-不会在全路径任意寻找最近线段，避免交叉/回头路误匹配。
-
-`tracking_summary.json` 包含全程及直线/弯道分组误差、RMSE、P95、最大误差、
-超阈值比例、路径覆盖率、是否到达终点、异常停车次数和持续时间。
-未跑完的路线会明确显示覆盖率和 goal_reached=false。
-异常停车定义为 TRACKING 状态下、远离起点和必要停车点、实际速度持续低于阈值。
-它是用于调试的统计判据，不能识别所有安全门停车或定位故障原因。
-
-`actual_path.csv` 另存参考/指令/反馈速度、角速度、曲率、前馈、状态和仿真时间，
-便于后续排查，但默认不再增加其他类型的图。
-`events.csv` 保存规划/状态变化。每个 epoch 独立评估，run_summary.json 汇总各 epoch。
+`actual_path.csv` 保留同步原始数据，`tracking_error.csv` 保存派生分析标签，`tracking_summary.json` 保存分阶段统计和关键事件。
+没有投影坐标的旧记录不重建位置距离；已有横向/航向误差与速度仍可分析。
+`events.csv` 保存规划/状态变化，每个 epoch 独立评估，`run_summary.json` 汇总各 epoch。
 
 新增 `/controller/lqr/tracking` 使用 Float64MultiArray，维度标签列明字段名，
 包含同一控制周期的位姿、误差、速度、进度、ROS 时间和关联 Path 时间戳。

@@ -19,18 +19,18 @@ planner:
       shortcut_max_lookahead: 200  # simplified vertices; bounds greedy shortcut work
       max_output_points: 100000
       enable_arc_smoothing: true
-      arc_radius: 0.35  # preferred radius, metres; limited by neighbouring segment lengths
+      arc_radius: 0.5  # preferred radius, metres; limited by neighbouring segment lengths
       arc_min_radius: 0.20  # do not shrink below this; retain the corner if no candidate is safe
       arc_radius_samples: 6  # bounded search, including both radius limits; range [2, 1000]
       arc_max_deviation: 0.001  # metres; also used for conservative continuous-arc checking
       arc_max_angle: 0.10  # radians between arc samples; keeps low-speed bends visibly smooth
-      arc_radius_max: 0.65  # allow a larger radius when collision/available space permit
+      arc_radius_max: 0.70  # allow a larger radius when collision/available space permit
       arc_radius_weight: 1.0  # cost: weight * (radius - preferred_radius)^2
       arc_curvature_weight: 0.04  # cost: weight / radius; favours gentler bends
       recover_shortcut_corners: true  # compare pre-shortcut route when shortcut leaves stops
       retained_corner_cost: 2.0  # metres-equivalent cost per retained corner in that comparison
       enable_curvature_transition: true  # line -> clothoid -> arc -> clothoid -> line
-      transition_length: 0.20  # preferred length of each entry/exit transition, metres
+      transition_length: 0.30  # preferred length of each entry/exit transition, metres
       transition_min_length: 0.04  # search shorter transitions when space is limited
       transition_samples: 4  # bounded length search, preferred to minimum
       max_curvature_rate: 30.0  # comfort reference in joint mode; hard rejection in legacy baseline
