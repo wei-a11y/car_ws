@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <vector>
 #include "plan/motion_limits.hpp"
+#include "plan/speed_envelope.hpp"
 
 namespace controller
 {
@@ -64,13 +65,20 @@ struct TrackerConfig
   double gain_schedule_min_speed = 0.05;
   std::size_t gain_schedule_samples = 12;
   double min_turn_speed = 0.03;
+  bool enable_dynamic_angular_budget = false;
+  std::size_t speed_envelope_rounds = 20;
+  std::size_t speed_search_iterations = 48;
+  double speed_envelope_tolerance = 1e-4;
+  double dynamic_budget_utilization = 0.95;
 };
 
 inline plan::MotionLimits motion_limits(const TrackerConfig & c)
 {
   return {c.v_nominal, c.v_max, c.w_max, c.linear_acceleration, c.linear_deceleration,
     c.angular_acceleration, c.lateral_acceleration, c.feedforward_angular_fraction,
-    c.angular_acceleration_fraction, c.min_turn_speed};
+    c.angular_acceleration_fraction, c.min_turn_speed, c.enable_dynamic_angular_budget,
+    c.speed_envelope_rounds, c.speed_search_iterations, c.speed_envelope_tolerance,
+    c.dynamic_budget_utilization};
 }
 
 struct DiscreteModel
@@ -90,7 +98,7 @@ const char * state_name(TrackerState state);
 enum class TrackerFault
 {
   NONE, NONFINITE_INPUT, SINGLE_POINT_NOT_REACHED,
-  NEAREST_DISTANCE_EXCEEDED, SEGMENT_END_OVERSHOOT
+  NEAREST_DISTANCE_EXCEEDED, SEGMENT_END_OVERSHOOT, ANGULAR_BUDGET_EXCEEDED
 };
 const char * fault_name(TrackerFault fault);
 
@@ -109,6 +117,8 @@ struct TrackerDiagnostics
   double nearest_distance = 0.0, endpoint_distance = 0.0;
   double lateral_error = 0.0, heading_error = 0.0;
   double reference_curvature = 0.0, feedforward_angular = 0.0;
+  double linear_angular_demand = 0.0, curvature_angular_demand = 0.0;
+  bool dynamic_budget_fallback = false;
   std::size_t next_stop_index = 0;
 };
 
@@ -172,6 +182,9 @@ private:
   bool continuous_curvature_ = false;
   std::vector<double> acceleration_limits_, deceleration_limits_;
   std::vector<double> segment_speed_limits_;
+  std::vector<plan::SpeedSegment> budget_segments_, budget_geometry_;
+  plan::SpeedEnvelope budget_envelope_;
+  bool budget_fallback_ = false;
   double speed_integral_ = 0.0, speed_derivative_ = 0.0, previous_speed_ = 0.0;
   double previous_command_ = 0.0, previous_reference_ = 0.0;
   bool speed_initialized_ = false;

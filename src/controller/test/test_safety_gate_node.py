@@ -22,6 +22,8 @@ def command(*overrides):
     # Even within the isolated DDS domain, NEVER output to a real base command topic.
     return [os.environ['GATE_EXECUTABLE'], '--ros-args', '--params-file',
             os.environ['GATE_CONFIG'], '-p', 'use_sim_time:=false',
+            '-p', 'v_max:=0.20', '-p', 'w_max:=0.60',
+            '-p', 'stop_distance:=0.50', '-p', 'release_distance:=0.65',
             '-r', '/cmd_vel_raw:=/gate_test/raw', '-r', '/cmd_vel:=/gate_test/out',
             '-r', '/scan:=/gate_test/scan',
             '-r', '/controller/safety/status:=/gate_test/status',

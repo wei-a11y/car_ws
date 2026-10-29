@@ -55,3 +55,43 @@ planner:
       clearance_target: 0.20  # distance from INFLATED blocked cells, not raw wall clearance
       clearance_weight: 0.5  # seconds, normalized penalty
       smoothness_weight: 0.2  # seconds, normalized penalty
+
+      # Experimental: enable explicitly; all distances are metres, times seconds.
+      enable_window_bezier: false
+      enable_turn_speed_coordination: false
+      window_merge_gap: 1.0
+      window_extension: 0.3
+      window_knot_spacing: 0.5
+      window_max_deviation: 0.2
+      window_max_time_ratio: 1.1
+      window_target_speed: 0.25
+      window_target_radius: 0.7
+      window_transition_scale: 0.25
+      window_solver_seconds: 0.25
+      window_total_seconds: 1.0
+      window_iterations: 50
+      window_objective_samples: 8
+      window_max_knots: 64
+      window_check_budget: 200000
+      window_seed_scales: [0.75, 1.0, 1.25]
+      window_curvature_weight: 1.0
+      window_rate_weight: 1.0
+      window_join_weight: 0.2
+      window_deviation_weight: 0.25
+      window_clearance_weight: 0.5
+      window_speed_weight: 2.0
+      window_constraint_fraction: 0.80  # optimizer seeks margin below hard bounds
+      window_derivative_min_scale: 0.25
+      window_derivative_max_scale: 2.0
+      window_heading_max_change: 1.5707963267948966  # radians around seed heading
+      window_min_tangent_ratio: 0.05  # regularity penalty relative to interval chord
+      window_constraint_weight: 100.0  # sampled hard-bound penalty; independent certification still required
+      coordination_min_gain: 0.005  # m/s; aligns with 0.02 m/s^2 for 0.20 s
+      coordination_max_gap: 1.0
+      coordination_max_rounds: 20
+      coordination_enable_platforms: true  # only within eligible curved portions, never whole-route slowdown
+      coordination_platform_min_speed: 0.20
+      coordination_platform_min_length: 0.30
+      coordination_acceleration_threshold: 0.02
+      coordination_acceleration_filter_tau: 0.15  # match analysis acceleration filter
+      coordination_min_duration: 0.2

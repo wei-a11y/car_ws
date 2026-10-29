@@ -119,7 +119,9 @@ class PathRecorder(Node):
         self.writer = csv.DictWriter(self.fp, fieldnames=[
             'time', 'ros_time', 'x', 'y', 'yaw', 'progress', 'lateral_error', 'heading_error',
             'v_ref', 'v_cmd', 'w_cmd', 'v_actual', 'w_actual', 'curvature', 'w_ff',
-            'remaining', 'state', 'geometry_valid', 'nearest_x', 'nearest_y', 'position_error'])
+            'remaining', 'state', 'geometry_valid', 'nearest_x', 'nearest_y', 'position_error',
+            'linear_angular_demand',
+            'curvature_angular_demand', 'dynamic_budget_fallback'])
         self.writer.writeheader()
         self.event('PATH_RECEIVED')
         if self.metadata is not None:
@@ -209,6 +211,9 @@ class PathRecorder(Node):
             row.update(nearest_x=projection[0], nearest_y=projection[1],
                        position_error=math.hypot(values['pose_x'] - projection[0],
                                                  values['pose_y'] - projection[1]))
+        for key in ('linear_angular_demand', 'curvature_angular_demand',
+                    'dynamic_budget_fallback'):
+            row[key] = values.get(key, '')
         self.writer.writerow(row)
         self.finished = int(values['state']) in (4, 5)
 

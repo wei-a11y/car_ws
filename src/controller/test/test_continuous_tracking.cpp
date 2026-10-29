@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -279,4 +281,92 @@ TEST(ContinuousTracking, PlannerCapsCannotBeSkippedByLongPreview)
   EXPECT_EQ(r.state, controller::TrackerState::TRACKING);
   EXPECT_LE(r.reference_speed, std::sqrt(.04 * .04 + 2 * cfg.linear_deceleration * .1));
   EXPECT_LE(r.command.v, r.reference_speed + 1e-12);
+}
+
+TEST(DynamicTracking, SharedBudgetCompletesSCurveWithoutExceedingFeedforwardBudget)
+{
+  auto cfg = curve_config();
+  cfg.v_nominal = .5;cfg.v_max = .6;cfg.linear_acceleration = cfg.linear_deceleration = .15;
+  cfg.angular_acceleration = 2.5;cfg.lateral_acceleration = .1;
+  cfg.enable_dynamic_angular_budget = true;
+  const auto map = plan::PlanningGrid::from_inflated_grid(
+    {160, 160, .05, 0, 0, 0}, std::vector<std::int8_t>(25600, 0), 25600);
+  plan::PathProcessingConfig pc{false, .1, 200, 100000};
+  pc.enable_arc_smoothing = pc.enable_curvature_transition = pc.enable_joint_optimization = true;
+  pc.enable_local_relocation = false;pc.motion = controller::motion_limits(cfg);
+  const auto path = plan::process_path(map, {{.5, 1}, {2, 1}, {2, 2}, {4, 2}}, pc);
+  std::vector<controller::ReferencePoint> reference;
+  for (const auto & p:path) {
+    reference.push_back(
+      {p.x, p.y, p.tangent_yaw, p.curvature, p.stop_required,
+        p.speed_limit, p.curvature_bound, p.curvature_rate_bound, p.segment_type});
+  }
+  controller::LqrTracker tracker(cfg);tracker.set_profile(reference, true);
+  controller::Pose2D pose{path.front().x, path.front().y, path.front().tangent_yaw};
+  controller::Velocity2D actual{0, 0};bool reached = false;
+  for (int tick = 0; tick < 20000; ++tick) {
+    const auto result = tracker.step(pose, actual);
+    ASSERT_NE(result.state, controller::TrackerState::TRACKING_ERROR)
+      << controller::fault_name(result.diagnostics.fault) << " s=" << result.progress << " v=" <<
+      actual.v;
+    if (result.state == controller::TrackerState::TRACKING) {
+      EXPECT_LE(
+        result.diagnostics.linear_angular_demand + result.diagnostics.curvature_angular_demand,
+        cfg.angular_acceleration_fraction * cfg.angular_acceleration + 1e-8);
+    }
+    if (result.state == controller::TrackerState::GOAL_REACHED) {reached = true;break;}
+    actual = result.command;
+    pose.x += actual.v * std::cos(pose.yaw) * cfg.control_period;
+    pose.y += actual.v * std::sin(pose.yaw) * cfg.control_period;
+    pose.yaw = controller::normalize_angle(pose.yaw + actual.w * cfg.control_period);
+  }
+  EXPECT_TRUE(reached);
+}
+
+TEST(DynamicTracking, PreviewIsNotCountedTwiceInRecordedShortGapTurn)
+{
+  const auto rows = [](const std::string & file) {
+      std::ifstream input(std::string(PREVIEW_BUDGET_FIXTURE_DIR) + "/" + file);
+      std::string line;std::getline(input, line);std::vector<std::vector<double>> result;
+      while (std::getline(input, line)) {
+        std::istringstream stream(line);std::string value;std::vector<double> row;
+        while (std::getline(stream, value, ',')) {row.push_back(std::stod(value));}
+        result.push_back(row);
+      }
+      return result;
+    };
+  auto cfg = curve_config();cfg.v_nominal = .5;cfg.v_max = .6;
+  cfg.linear_acceleration = cfg.linear_deceleration = .15;cfg.lateral_acceleration = .1;
+  cfg.angular_acceleration = 2.5;cfg.enable_dynamic_angular_budget = true;
+  cfg.max_tracking_error = .2;
+  std::vector<controller::ReferencePoint> reference;
+  for (const auto & p:rows("preview_budget_path.csv")) {
+    reference.push_back(
+      {p[1], p[2], p[3], p[4], p[5] > 0, p[7], p[8], p[9],
+        static_cast<unsigned>(p[6])});
+  }
+  ASSERT_GT(reference.size(), 30U);
+  for (const char * file:{"preview_budget_inputs.csv", "preview_budget_lag_inputs.csv"}) {
+    controller::LqrTracker tracker(cfg);tracker.set_profile(reference, true);
+    const auto inputs = rows(file);ASSERT_GT(inputs.size(), 100U);
+    for (std::size_t i = 0; i < inputs.size(); ++i) {
+      const auto & p = inputs[i];
+      const auto result = tracker.step({p[0], p[1], p[2]}, {p[3], p[4]});
+      ASSERT_NE(result.state, controller::TrackerState::TRACKING_ERROR)
+        << file << " sample=" << i << " " << controller::fault_name(result.diagnostics.fault);
+      EXPECT_LE(
+        result.diagnostics.linear_angular_demand + result.diagnostics.curvature_angular_demand,
+        cfg.angular_acceleration_fraction * cfg.angular_acceleration + 1e-8);
+    }
+  }
+}
+
+TEST(DynamicTracking, DiscontinuousCurvatureCannotHideItsRateInLegacyProfileMode)
+{
+  auto cfg = curve_config();cfg.enable_dynamic_angular_budget = true;
+  controller::LqrTracker tracker(cfg);
+  EXPECT_THROW(
+    tracker.set_profile({{0, 0, 0, 0, false}, {1, 0, 0, 1, false}, {2, 0, 0, 1, true}}, false),
+    std::invalid_argument);
+  EXPECT_FALSE(tracker.has_path());
 }

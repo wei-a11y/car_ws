@@ -25,6 +25,7 @@ void LqrTracker::set_profile(const std::vector<ReferencePoint> & path, bool cont
   std::vector<double> segment_limits(path.size(), config_.v_max);
   std::vector<Point2D> points;
   const auto motion = motion_limits(config_);
+  std::vector<plan::SpeedSegment> budget_segments;
   for (std::size_t i = 0; i < path.size(); ++i) {
     const auto & point = path[i];
     if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.yaw) ||
@@ -75,6 +76,11 @@ void LqrTracker::set_profile(const std::vector<ReferencePoint> & path, bool cont
     const double peak = std::max(
       {std::abs(previous.curvature), std::abs(point.curvature),
         previous.curvature_bound});
+    if (config_.enable_dynamic_angular_budget && !continuous_curvature && !point.stop_required &&
+      std::abs(point.curvature - previous.curvature) > 1e-10)
+    {
+      throw std::invalid_argument("Dynamic budget requires continuous nodal curvature");
+    }
     const double measured_rate = continuous_curvature && !point.stop_required ?
       std::abs(point.curvature - previous.curvature) / length : 0.0;
     const auto bound = plan::curve_limits(
@@ -87,6 +93,9 @@ void LqrTracker::set_profile(const std::vector<ReferencePoint> & path, bool cont
     limits[i - 1] = std::min(limits[i - 1], cap);
     limits[i] = std::min(limits[i], cap);
     segment_limits[i] = cap;
+    budget_segments.push_back(
+      {length, peak,
+        std::max(measured_rate, previous.curvature_rate_bound), cap, point.stop_required});
   }
   // Backward braking envelope incorporates every future curve and mandatory stop.
   for (std::size_t i = path.size() - 1; i > 0; --i) {
@@ -94,6 +103,28 @@ void LqrTracker::set_profile(const std::vector<ReferencePoint> & path, bool cont
       limits[i - 1], std::sqrt(
         limits[i] * limits[i] + 2.0 * deceleration[i] * (lengths[i] - lengths[i - 1])));
   }
+  budget_geometry_ = budget_segments;
+  if (config_.enable_dynamic_angular_budget && !budget_segments.empty()) {
+    const auto original = budget_segments;
+    for (std::size_t i = 0; i < budget_segments.size(); ++i) {
+      // The complete outgoing segment must already support its preview geometry.
+      // This moves braking upstream before the preview enters a faster-changing curve.
+      for (std::size_t j = i + 1; j < original.size() && !original[j - 1].stop_after &&
+        lengths[j] <= lengths[i + 1] + config_.feedforward_preview_distance; ++j)
+      {
+        budget_segments[i].curvature =
+          std::max(budget_segments[i].curvature, original[j].curvature);
+        budget_segments[i].rate = std::max(budget_segments[i].rate, original[j].rate);
+        budget_segments[i].cap = std::min(budget_segments[i].cap, original[j].cap);
+      }
+    }
+    budget_envelope_ = plan::speed_envelope(budget_segments, motion, false);
+    budget_fallback_ = budget_envelope_.conservative_fallback;
+    for (std::size_t i = 0; i < limits.size(); ++i) {
+      limits[i] = budget_envelope_.speed[2 * i];
+    }
+  }
+  budget_segments_ = std::move(budget_segments);
   points_ = std::move(points);
   segments_ = std::move(segments);
   arc_lengths_ = std::move(lengths);
@@ -143,6 +174,7 @@ TrackerResult LqrTracker::step_continuous(Pose2D pose, Velocity2D actual)
   d.aligning = aligning_;
   d.next_stop_index = next_stop_;
   const auto fault = [&](TrackerFault reason) {
+      result.command = {0.0, 0.0};
       fault_ = true;
       d.fault = reason;
       fault_diagnostics_ = d;
@@ -304,13 +336,88 @@ TrackerResult LqrTracker::step_continuous(Pose2D pose, Velocity2D actual)
         std::sqrt(config_.lateral_acceleration / limiting_curvature)});
   }
   result.state = TrackerState::TRACKING;
+  double acceleration = std::min(
+    acceleration_limits_[reference.segment + 1],
+    acceleration_limits_[preview_reference.segment + 1]);
+  double deceleration_limit = std::min(deceleration_limits_[reference.segment + 1], deceleration);
+  double k_bound = 0.0, q_bound = 0.0;
+  if (config_.enable_dynamic_angular_budget) {
+    auto motion = motion_limits(config_);
+    motion.enable_dynamic_angular_budget = !budget_fallback_;
+    d.dynamic_budget_fallback = budget_fallback_;
+    // Include every crossed segment: a preview must never skip an intervening bottleneck.
+    limit = std::min(config_.v_nominal, config_.slowdown_gain * result.remaining);
+    for (std::size_t i = reference.segment; i <= preview_reference.segment; ++i) {
+      const auto & edge = budget_geometry_[i];
+      k_bound = std::max(k_bound, edge.curvature); q_bound = std::max(q_bound, edge.rate);
+      limit = std::min(limit, edge.cap);
+    }
+    // Brake to the next virtual node, including an interior peak between two stops.
+    auto upper = std::upper_bound(
+      budget_envelope_.distance.begin(),
+      budget_envelope_.distance.end(), best_s);
+    const auto node = std::min<std::size_t>(
+      upper - budget_envelope_.distance.begin(), budget_envelope_.distance.size() - 1);
+    const auto & edge = budget_segments_[reference.segment];
+    limit = std::min(
+      limit, plan::reachable_speed(
+        motion, budget_envelope_.speed[node],
+        std::max(
+          0.0,
+          budget_envelope_.distance[node] - best_s -
+          std::max(0.0, actual.v) * config_.control_period),
+        edge.curvature, edge.rate, edge.cap, true));
+    const double budget = plan::angular_budget(motion) / (budget_fallback_ ? 2.0 : 1.0);
+    const double remaining_budget = budget - std::pow(std::max(0.0, actual.v), 2) * q_bound;
+    if (remaining_budget < -1e-8) {return fault(TrackerFault::ANGULAR_BUDGET_EXCEEDED);}
+    if (k_bound > 0) {
+      acceleration =
+        std::min(config_.linear_acceleration, std::max(0.0, remaining_budget) / k_bound);
+      deceleration_limit = std::min(
+        config_.linear_deceleration, std::max(
+          0.0,
+          remaining_budget) /
+        k_bound);
+    } else {
+      acceleration = config_.linear_acceleration;deceleration_limit = config_.linear_deceleration;
+    }
+  }
   const double speed = std::min(config_.v_nominal, limit);
   result.reference_speed = speed;
-  result.command.v = speed_control(
-    speed, actual.v, limit, std::min(
-      acceleration_limits_[reference.segment + 1],
-      acceleration_limits_[preview_reference.segment + 1]),
-    std::min(deceleration_limits_[reference.segment + 1], deceleration));
+  const double prior_command = speed_initialized_ ? previous_command_ : std::max(0.0, actual.v);
+  result.command.v = speed_control(speed, actual.v, limit, acceleration, deceleration_limit);
+  if (config_.enable_dynamic_angular_budget) {
+    const auto demand = [&](double command) {
+        // Feedforward acceleration is the command derivative. The measured speed
+        // bounds progress through curvature; velocity tracking error is not acceleration.
+        const double a = std::abs(command - prior_command) / config_.control_period;
+        return a * k_bound +
+               std::pow(std::max({0.0, command, actual.v, prior_command}), 2) * q_bound;
+      };
+    const double budget = plan::angular_budget(motion_limits(config_));
+    if (demand(result.command.v) > budget + 1e-8) {
+      // The feasible set is convex in command speed. Search from the measured/previous centre.
+      const double centre = std::clamp(prior_command, 0.0, limit);
+      if (demand(centre) > budget + 1e-8) {return fault(TrackerFault::ANGULAR_BUDGET_EXCEEDED);}
+      double low = 0, high = 1;
+      const double proposed = result.command.v;
+      for (std::size_t iteration = 0; iteration < config_.speed_search_iterations; ++iteration) {
+        const double fraction = (low + high) / 2;
+        if (demand(centre + fraction * (proposed - centre)) <= budget) {low = fraction;} else {
+          high = fraction;
+        }
+      }
+      result.command.v = centre + low * (proposed - centre);
+      previous_command_ = result.command.v;
+      previous_reference_ = std::min(previous_reference_, result.command.v);
+    }
+    const double a = std::abs(result.command.v - prior_command) / config_.control_period;
+    d.linear_angular_demand = a * k_bound;
+    d.curvature_angular_demand = std::pow(
+      std::max(
+        {0.0, result.command.v, actual.v,
+          prior_command}), 2) * q_bound;
+  }
   result.reference_curvature = d.reference_curvature = curvature;
   result.feedforward_angular = d.feedforward_angular = result.command.v * curvature;
   // Precomputed speed schedule avoids a Riccati solve in every control callback.

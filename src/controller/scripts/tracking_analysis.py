@@ -38,7 +38,11 @@ def validate_config(c):
     positive = ('position_error_threshold', 'lateral_error_threshold', 'heading_error_threshold',
                 'curve_curvature_threshold', 'stopped_speed_threshold', 'stop_min_duration',
                 'max_sample_gap', 'acceleration_filter_tau', 'acceleration_threshold',
-                'motion_min_duration', 'font_size', 'line_width', 'point_size', 'dpi')
+                'motion_min_duration', 'platform_speed_error_tolerance', 'target_turn_speed_min',
+                'target_turn_speed_preferred', 'acceptance_time_ratio',
+                'acceptance_event_reduction',
+                'acceptance_lateral_absolute', 'acceptance_lateral_relative', 'font_size',
+                'line_width', 'point_size', 'dpi')
     for name in positive:
         if not np.isfinite(c[name]) or c[name] <= 0:
             raise ValueError(f'{name} must be finite and positive')
@@ -46,6 +50,10 @@ def validate_config(c):
                  'stop_exclusion_distance', 'error_axis_margin', 'event_label_spacing_fraction'):
         if not np.isfinite(c[name]) or c[name] < 0:
             raise ValueError(f'{name} must be finite and nonnegative')
+    if (c['target_turn_speed_min'] > c['target_turn_speed_preferred']
+            or c['acceptance_time_ratio'] < 1
+            or c['acceptance_event_reduction'] >= 1):
+        raise ValueError('Inconsistent benchmark acceptance thresholds')
     if len(c['figure_size']) != 2 or any(
             not np.isfinite(x) or x <= 0 for x in c['figure_size']):
         raise ValueError('figure_size must have two positive finite values')
@@ -325,7 +333,47 @@ def summarize(planned, actual, config):
                'pose_source': 'TF localization estimate; not Gazebo ground truth'}
     for turn in turns:
         turn['metrics'] = metric_group(data, usable & (data['turn_id'] == turn['id']), config)
+    summary['smoothness'] = smoothness_metrics(data, config)
     return data.loc[usable].copy(), summary
+
+
+def smoothness_metrics(data, config):
+    """Evaluate reference, command and measurement independently without bridging gaps/states."""
+    time = data['time'].to_numpy()
+    state = data['state'].to_numpy()
+    valid = (data['geometry_valid'].to_numpy() > 0) & (state == 2)
+    result = {}
+    for column in ('v_ref', 'v_cmd', 'v_actual'):
+        speed = data[column].to_numpy()
+        _, filtered = acceleration(time, speed, valid, config)
+        jerk = np.full(len(time), np.nan)
+        for i in range(2, len(time)):
+            dt = time[i] - time[i - 1]
+            if (valid[i-2:i+1].all() and np.isfinite(filtered[i-1:i+1]).all()
+                    and np.isfinite(speed[i-2:i+1]).all()
+                    and np.all(np.diff(time[i-2:i+1]) <= config['max_sample_gap'])
+                    and np.all(state[i-2:i+1] == state[i])):
+                jerk[i] = (filtered[i] - filtered[i-1]) / dt
+        events = 0
+        for sign in (-1, 1):
+            mask = valid & (sign * filtered > config['acceleration_threshold'])
+            for a, b in intervals(time, mask, config['max_sample_gap']):
+                if time[b] - time[a] >= config['motion_min_duration'] - 1e-9:
+                    events += 1
+        finite = jerk[np.isfinite(jerk)]
+        result[column] = {'significant_acceleration_events': events,
+                          'jerk_p95_abs': float(np.percentile(np.abs(finite), 95))
+                          if len(finite) else None,
+                          'jerk_rms': float(np.sqrt(np.mean(finite**2)))
+                          if len(finite) else None}
+    tracking = valid & (np.abs(data['curvature'].to_numpy()) >=
+                        config['curve_curvature_threshold'])
+    error = (data['v_actual'] - data['v_ref']).to_numpy()
+    values = np.abs(error[tracking & np.isfinite(error)])
+    result['curve_reference_speed_error_p95'] = float(np.percentile(values, 95)) \
+        if len(values) else None
+    result['platform_error_tolerance'] = config['platform_speed_error_tolerance']
+    return result
 
 
 def save_summary(path, summary):

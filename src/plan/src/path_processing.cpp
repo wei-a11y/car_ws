@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "plan/path_processing.hpp"
 #include "path_optimizer.hpp"
+#include "path_experiments.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -393,6 +394,45 @@ double path_cost(
 void validate_path_processing_config(const PathProcessingConfig & config)
 {
   validate_motion_limits(config.motion);
+  for (double value : {config.window_merge_gap, config.window_extension,
+      config.window_knot_spacing, config.window_max_deviation, config.window_target_speed,
+      config.window_target_radius, config.window_transition_scale,
+      config.window_derivative_min_scale, config.window_derivative_max_scale,
+      config.window_heading_max_change, config.window_solver_seconds,
+      config.window_total_seconds, config.coordination_min_gain, config.coordination_max_gap,
+      config.coordination_acceleration_threshold, config.coordination_min_duration,
+      config.coordination_acceleration_filter_tau, config.coordination_platform_min_speed,
+      config.coordination_platform_min_length})
+  {
+    if (!std::isfinite(value) || value <= 0) {
+      throw std::invalid_argument("Window and coordination scales must be positive");
+    }
+  }
+  for (double value : {config.window_curvature_weight, config.window_rate_weight,
+      config.window_join_weight, config.window_deviation_weight, config.window_clearance_weight,
+      config.window_speed_weight, config.window_constraint_weight})
+  {
+    if (!std::isfinite(value) || value < 0) {throw std::invalid_argument("Invalid window weight");}
+  }
+  for (double scale : config.window_seed_scales) {
+    if (!std::isfinite(scale) || scale <= 0) {throw std::invalid_argument("Invalid solver seed");}
+  }
+  if (config.window_derivative_min_scale > config.window_derivative_max_scale ||
+    config.window_heading_max_change >= std::acos(-1.0) ||
+    !std::isfinite(config.window_constraint_fraction) || config.window_constraint_fraction <= 0 ||
+    config.window_constraint_fraction >= 1 || !std::isfinite(config.window_min_tangent_ratio) ||
+    config.window_min_tangent_ratio <= 0 || config.window_min_tangent_ratio >= 1 ||
+    config.window_seed_scales.empty() || config.window_iterations == 0 ||
+    config.window_objective_samples < 2 || config.window_max_knots < 2 ||
+    config.window_check_budget == 0 || config.coordination_max_rounds == 0 ||
+    !std::isfinite(config.window_max_time_ratio) ||
+    config.window_max_time_ratio < 1 ||
+    ((config.enable_window_bezier || config.motion.enable_dynamic_angular_budget) &&
+    !config.enable_curvature_transition))
+  {
+    throw std::invalid_argument("Inconsistent window optimization configuration");
+  }
+
   for (double value : {config.local_shift_max, config.local_window_length,
       config.local_anchor_spacing, config.fallback_deviation, config.fallback_blend_min,
       config.fallback_blend_max, config.clearance_target})
@@ -517,6 +557,18 @@ std::vector<PathPoint2D> process_path(
   const PathProcessingConfig & config, PathProcessingStats * stats)
 {
   validate_path_processing_config(config);
+  if (config.enable_window_bezier || config.enable_turn_speed_coordination ||
+    config.motion.enable_dynamic_angular_budget)
+  {
+    auto legacy = config;
+    legacy.enable_window_bezier = legacy.enable_turn_speed_coordination = false;
+    legacy.motion.enable_dynamic_angular_budget = false;
+    PathProcessingStats baseline_stats;
+    const auto baseline = process_path(grid, raw, legacy, &baseline_stats);
+    auto result = process_experiments(grid, baseline, config, baseline_stats);
+    if (stats != nullptr) {*stats = std::move(baseline_stats);}
+    return result;
+  }
   if (config.enable_joint_optimization) {
     auto legacy = config;
     legacy.enable_joint_optimization = false;

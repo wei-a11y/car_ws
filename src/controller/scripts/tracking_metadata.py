@@ -2,9 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Best-effort, nonblocking per-epoch metadata using standard ROS parameter services."""
 
+import gzip
 import hashlib
 import json
 import math
+from pathlib import Path
+import subprocess
+import struct
+import tarfile
 import time
 
 from rcl_interfaces.srv import GetParameters, ListParameters
@@ -45,6 +50,8 @@ class MetadataCapture:
                                node.create_client(GetParameters, name + '/get_parameters'))
                         for name in names}
         self.map = None
+        self.map_cells = None
+        self.source = None
         self.goal = None
         self.jobs = []
 
@@ -54,15 +61,73 @@ class MetadataCapture:
                     'origin': pose_dict(meta.origin), 'frame': message.header.frame_id}
         digest = hashlib.sha256(json.dumps(geometry, sort_keys=True).encode())
         digest.update(bytes((int(v) & 255 for v in message.data)))
-        self.map = {**geometry, 'sha256': digest.hexdigest(), 'stamp': stamp(message.header)}
+        origin = meta.origin
+        payload = struct.pack('<QQdddd', meta.width, meta.height, meta.resolution,
+                              origin.position.x, origin.position.y,
+                              2 * math.atan2(origin.orientation.z, origin.orientation.w))
+        payload += bytes((int(v) & 255 for v in message.data))
+        fingerprint = 14695981039346656037
+        for value in payload:
+            fingerprint = ((fingerprint ^ value) * 1099511628211) & ((1 << 64) - 1)
+        self.map = {**geometry, 'sha256': digest.hexdigest(),
+                    'fingerprint_fnv1a64': f'{fingerprint:016x}', 'stamp': stamp(message.header)}
+        self.map_cells = [int(v) for v in message.data]
 
     def on_goal(self, message):
         self.goal = {'header': stamp(message.header), 'pose': pose_dict(message.pose),
                      'received_ros_time': self.node.get_clock().now().nanoseconds / 1e9,
                      'association': 'last received goal; not an atomic planner request ID'}
 
+    def capture_source(self, directory):
+        if self.source is not None:
+            return self.source
+        root = next((p for p in (Path.cwd(), *Path.cwd().parents)
+                     if (p / '.git').exists()), None)
+        if root is None:
+            self.source = {'status': 'unavailable', 'reason': 'not launched in repository'}
+            return self.source
+        try:
+            revision = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=root, timeout=2).decode().strip()
+            patch = subprocess.check_output(['git', 'diff', 'HEAD', '--binary'],
+                                            cwd=root, timeout=2)
+            files = subprocess.check_output(
+                ['git', 'ls-files', '--cached', '--others', '--exclude-standard',
+                 '--', 'src', 'docs'], cwd=root, timeout=2).decode().splitlines()
+            digest = hashlib.sha256()
+            inventory = []
+            for name in sorted(set(files)):
+                file = root / name
+                if (file.is_file() and file.suffix in
+                        ('.cpp', '.hpp', '.py', '.yaml', '.xml', '.txt', '.md')):
+                    digest.update(name.encode())
+                    digest.update(file.read_bytes())
+                    inventory.append((name, file))
+            with tarfile.open(directory.parent / 'source_snapshot.tar.gz', 'w:gz') as archive:
+                for name, file in inventory:
+                    archive.add(file, arcname=name, recursive=False)
+            artifact = directory.parent / 'source.patch'
+            artifact.write_bytes(patch)
+            self.source = {'status': 'ok', 'revision': revision,
+                           'tracked_diff_sha256': hashlib.sha256(patch).hexdigest(),
+                           'source_tree_sha256': digest.hexdigest(),
+                           'tracked_diff_file': '../source.patch',
+                           'source_snapshot': '../source_snapshot.tar.gz'}
+        except (OSError, subprocess.SubprocessError) as error:
+            self.source = {'status': 'unavailable', 'reason': str(error)}
+        return self.source
+
     def start(self, directory, path):
-        document = {'schema_version': 1, 'path_stamp': stamp(path.header),
+        snapshot = None
+        if self.map is not None and self.map_cells is not None:
+            filename = 'inflated_grid_' + self.map['sha256'] + '.json.gz'
+            file = directory.parent / filename
+            if not file.exists():
+                with gzip.open(file, 'wt', encoding='utf-8') as fp:
+                    json.dump({'map': self.map, 'data': self.map_cells}, fp)
+            snapshot = '../' + filename
+        document = {'schema_version': 2, 'source': self.capture_source(directory),
+                    'map_snapshot': snapshot, 'path_stamp': stamp(path.header),
                     'path_endpoints': {'start': pose_dict(path.poses[0].pose),
                                        'end': pose_dict(path.poses[-1].pose)},
                     'map': self.map, 'last_received_goal': self.goal,

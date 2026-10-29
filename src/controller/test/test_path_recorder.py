@@ -133,6 +133,13 @@ def test_metadata_async_success_timeout_map_and_shutdown(tmp_path):
         assert values['v_nominal'] == .3 and values['array_test'] == [1., 2.]
         assert document['parameters']['/tracking_missing']['status'] == 'unavailable'
         assert len(document['map']['sha256']) == 64
+        import gzip
+        snapshot = first / document['map_snapshot']
+        with gzip.open(snapshot, 'rt') as fp:
+            captured = json.load(fp)
+        assert captured['data'] == [0, 100]
+        assert captured['map']['sha256'] == document['map']['sha256']
+        assert len(document['map']['fingerprint_fnv1a64']) == 16
         assert not document['atomic_snapshot']
         assert json_parameter([float('nan'), float('inf'), b'\x01']) == [
             {'nonfinite_float': 'nan'}, {'nonfinite_float': 'inf'}, {'bytes_hex': '01'}]

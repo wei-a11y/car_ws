@@ -55,6 +55,7 @@ double normalize_angle(double angle)
 
 void validate_config(const TrackerConfig & c)
 {
+  plan::validate_motion_limits(motion_limits(c));
   for (double value : {c.speed_pid_kp, c.speed_pid_ki, c.speed_pid_kd}) {
     if (!std::isfinite(value) || value < 0.0) {
       throw std::invalid_argument("PID gains must be finite and nonnegative");
@@ -184,6 +185,7 @@ const char * fault_name(TrackerFault fault)
     case TrackerFault::NONFINITE_INPUT: return "NONFINITE_INPUT";
     case TrackerFault::SINGLE_POINT_NOT_REACHED: return "SINGLE_POINT_NOT_REACHED";
     case TrackerFault::NEAREST_DISTANCE_EXCEEDED: return "NEAREST_DISTANCE_EXCEEDED";
+    case TrackerFault::ANGULAR_BUDGET_EXCEEDED: return "ANGULAR_BUDGET_EXCEEDED";
     case TrackerFault::SEGMENT_END_OVERSHOOT: return "SEGMENT_END_OVERSHOOT";
   }
   return "UNKNOWN";
@@ -207,6 +209,10 @@ void LqrTracker::clear_path()
   acceleration_limits_.clear();
   deceleration_limits_.clear();
   segment_speed_limits_.clear();
+  budget_segments_.clear();
+  budget_geometry_.clear();
+  budget_envelope_ = {};
+  budget_fallback_ = false;
   continuous_curvature_ = false;
   points_.clear();
   segments_.clear();

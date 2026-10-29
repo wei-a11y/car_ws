@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <stdexcept>
 
 namespace plan
@@ -17,6 +18,11 @@ struct MotionLimits
   double angular_acceleration = 1.0, lateral_acceleration = 0.04;
   double feedforward_angular_fraction = 0.75, angular_acceleration_fraction = 0.75;
   double min_turn_speed = 0.03;
+  bool enable_dynamic_angular_budget = false;
+  std::size_t speed_envelope_rounds = 20;
+  std::size_t speed_search_iterations = 48;
+  double speed_envelope_tolerance = 1e-4;
+  double dynamic_budget_utilization = 0.95;
 };
 
 inline void validate_motion_limits(const MotionLimits & m)
@@ -34,6 +40,14 @@ inline void validate_motion_limits(const MotionLimits & m)
   {
     throw std::invalid_argument("Inconsistent shared motion constraints");
   }
+  if (!std::isfinite(m.dynamic_budget_utilization) || m.dynamic_budget_utilization <= 0 ||
+    m.dynamic_budget_utilization > 1 || m.speed_envelope_rounds == 0 ||
+    m.speed_search_iterations == 0 ||
+    !std::isfinite(m.speed_envelope_tolerance) ||
+    m.speed_envelope_tolerance <= 0.0)
+  {
+    throw std::invalid_argument("Invalid speed envelope convergence limits");
+  }
 }
 
 struct CurveLimits {double speed, acceleration, deceleration;};
@@ -44,7 +58,8 @@ inline CurveLimits curve_limits(const MotionLimits & m, double curvature, double
     throw std::invalid_argument("Invalid curvature/rate bound");
   }
   CurveLimits result{m.v_max, m.linear_acceleration, m.linear_deceleration};
-  const double budget = m.angular_acceleration_fraction * m.angular_acceleration / 2.0;
+  const double budget = m.angular_acceleration_fraction * m.angular_acceleration /
+    (m.enable_dynamic_angular_budget ? 1.0 / m.dynamic_budget_utilization : 2.0);
   if (curvature > 0.0) {
     result.speed = std::min(
       {result.speed,

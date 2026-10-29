@@ -24,6 +24,7 @@ def command(*overrides):
     return [os.environ['TRACKER_EXECUTABLE'], '--ros-args', '--params-file',
             os.environ['TRACKER_CONFIG'], '--params-file',
             str(FilePath(__file__).parents[2] / 'plan/config/motion_limits.yaml'),
+            '-p', 'v_nominal:=0.15', '-p', 'v_max:=0.20',
             '-p', 'planning_frame:=control_debug',
             '-p', 'use_sim_time:=false', '-p', 'require_path_profile:=false', *overrides]
 

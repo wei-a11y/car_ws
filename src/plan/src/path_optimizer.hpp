@@ -5,6 +5,7 @@
 #include "plan/path_processing.hpp"
 namespace plan
 {
+double legacy_executable_time(std::vector<PathPoint2D> path, const PathProcessingConfig & config);
 std::vector<PathPoint2D> optimize_joint_path(
   const PlanningGrid & grid, const std::vector<Point2D> & raw,
   const std::vector<PathPoint2D> & baseline, const PathProcessingConfig & config,

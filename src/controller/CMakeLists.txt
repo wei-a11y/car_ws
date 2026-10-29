@@ -224,6 +224,8 @@ if(BUILD_TESTING)
     ENV "ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/recorder_ros_logs" "ROS_LOCALHOST_ONLY=1")
 
   ament_add_gtest(test_continuous_tracking test/test_continuous_tracking.cpp)
+  target_compile_definitions(test_continuous_tracking PRIVATE
+    PREVIEW_BUDGET_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
   target_link_libraries(test_continuous_tracking lqr_tracker_core plan::path_processing_core)
   ament_target_dependencies(test_continuous_tracking plan)
 

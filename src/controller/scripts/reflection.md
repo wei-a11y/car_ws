@@ -31,11 +31,29 @@ python3 src/controller/scripts/analyze_path_tracking.py
   /goal_pose geometry_msgs/msg/PoseStamped \
   "{header: {stamp: now, frame_id: map},
     pose: {
-      position: {x: -0.87, y: 7.64, z: 0.0},
+      position: {x: -4.142, y: 7.919, z: 0.0},
       orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
     }}"
 4.python3 src/controller/scripts/analyze_path_tracking.py \
   --config src/controller/config/path_tracking.yaml
+
+5.调整lqr第三版
+1.ros2 launch controller path_tracking.launch.py \
+  params_file:="$PWD/src/controller/config/path_tracking.yaml"
+2.ros2 launch car_description navigation.launch.py controller_type:=lqr \
+  motion_limits_file:="$PWD/src/plan/config/motion_limits.yaml" \
+  planner_params_file:="$PWD/src/plan/config/astar.yaml" \
+  lqr_params_file:="$PWD/src/controller/config/lqr_tracker.yaml"
+3.ros2 topic pub --once --use-sim-time --qos-durability volatile \
+  /goal_pose geometry_msgs/msg/PoseStamped \
+  "{header: {stamp: now, frame_id: map},
+    pose: {
+      position: {x: -4.142, y: 7.919, z: 0.0},
+      orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
+    }}"
+4.python3 src/controller/scripts/analyze_path_tracking.py \
+  --config src/controller/config/path_tracking.yaml \
+  --data-dir data/path_record/run_具体时间/path_0001 --no-show
 
 问题
 1.需要时刻注意小车的位置，可用ros2 topic echo /amcl_pose --once查看小车实时位置
@@ -51,3 +69,13 @@ ros2 topic pub --once --use-sim-time --qos-durability volatile \
       orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
     }}"
 6.在我运行python3 src/controller/scripts/analyze_path_tracking.py指令后报错，一般都是因为旧文件残留，导致分析文件读取的路径是旧文件的路径，此时要么直接指令读取到最新产生的图像进行分析；要么就修改分析文件里读取文件的路径
+
+如何根据图像曲线判断小车情况然后进行修改
+| 图中现象 | 优先怀疑的环节 | 应重点检查 |
+|---|---|---|
+| 参考速度就反复升降，指令和实际速度跟着变化 | 参考限速、预瞄与制动处理 | 是否在相邻弯之间反复解除、重新施加限速；曲率是否频繁起伏 |
+| 参考速度较平滑，但指令速度反复变化 | 纵向控制及指令约束 | PID 输出、反馈噪声、限幅和加速度约束之间的影响 |
+| 指令速度平滑，实际速度明显滞后或振荡 | 底盘响应与反馈 | 加减速能力、底盘速度控制、里程计反馈 |
+| 曲率在连接处突变或出现尖峰 | 路径几何处理 | 圆弧与过渡段是否连续，采样和参考点选择是否稳定 |
+| 前馈角速度平滑，指令角速度却明显左右摆动 | 横向反馈或参考方向 | LQR 修正量、航向参考、投影点是否跳变 |
+| 转弯时线速度接近零，仍有明显角速度 | 停车转向或重新对准 | 控制状态、必要停车标记，以及此前的制动过程 |

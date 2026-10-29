@@ -111,6 +111,17 @@ private:
     c.speed_pid_derivative_filter = parameter<double>("speed_pid.derivative_filter");
     c.angular_acceleration_fraction = parameter<double>("angular_acceleration_fraction");
     c.min_turn_speed = parameter<double>("min_turn_speed");
+    c.enable_dynamic_angular_budget = parameter<bool>(
+      "enable_dynamic_angular_budget",
+      c.enable_dynamic_angular_budget);
+    c.speed_envelope_rounds = count("speed_envelope_rounds", c.speed_envelope_rounds);
+    c.speed_search_iterations = count("speed_search_iterations", c.speed_search_iterations);
+    c.dynamic_budget_utilization = parameter<double>(
+      "dynamic_budget_utilization",
+      c.dynamic_budget_utilization);
+    c.speed_envelope_tolerance = parameter<double>(
+      "speed_envelope_tolerance",
+      c.speed_envelope_tolerance);
     plan::validate_motion_limits(motion_limits(c));
     c.gain_schedule_min_speed = parameter<double>("gain_schedule_min_speed");
     c.gain_schedule_samples = count("gain_schedule_samples");
@@ -213,6 +224,19 @@ private:
     rcl_interfaces::msg::ParameterDescriptor descriptor;
     descriptor.read_only = true;
     return declare_parameter<T>(name, descriptor);
+  }
+
+  template<typename T>
+  T parameter(const std::string & name, const T & value)
+  {
+    rcl_interfaces::msg::ParameterDescriptor descriptor;descriptor.read_only = true;
+    return declare_parameter<T>(name, value, descriptor);
+  }
+  std::size_t count(const std::string & name, std::size_t fallback)
+  {
+    const auto value = parameter<std::int64_t>(name, static_cast<std::int64_t>(fallback));
+    if (value <= 0) {throw std::invalid_argument(name + " must be positive");}
+    return static_cast<std::size_t>(value);
   }
 
   std::size_t count(const std::string & name)
@@ -517,7 +541,7 @@ private:
     debug.layout.dim[0].label =
       "ey,etheta,progress,remaining,v_ref,v_cmd,w_cmd,nearest_x,nearest_y,lookahead_x,lookahead_y,"
       "curvature,w_ff,v_actual,w_actual,pose_x,pose_y,pose_yaw,ros_time,path_sec,path_nanosec,"
-      "state,geometry_valid";
+      "state,geometry_valid,linear_angular_demand,curvature_angular_demand,dynamic_budget_fallback";
     debug.data = {result.lateral_error, result.heading_error, result.progress, result.remaining,
       result.reference_speed, result.command.v, result.command.w,
       result.nearest.x, result.nearest.y, result.lookahead.x, result.lookahead.y,
@@ -529,7 +553,9 @@ private:
       pending_path_ ? static_cast<double>(pending_path_->header.stamp.nanosec) : 0.0,
       static_cast<double>(result.state),
       result.diagnostics.geometry_valid && result.diagnostics.fault == TrackerFault::NONE ?
-      1.0 : 0.0};
+      1.0 : 0.0, result.diagnostics.linear_angular_demand,
+      result.diagnostics.curvature_angular_demand,
+      result.diagnostics.dynamic_budget_fallback ? 1.0 : 0.0};
     debug.layout.dim[0].size = debug.layout.dim[0].stride = debug.data.size();
     tracking_pub_->publish(debug);
     // Preserve the established eleven-element debug interface for existing consumers.

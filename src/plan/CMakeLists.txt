@@ -17,6 +17,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(common_msg REQUIRED)
+find_package(Ceres REQUIRED)
 
 add_library(planning_grid_core src/planning_grid.cpp)
 target_compile_features(planning_grid_core PUBLIC cxx_std_17)
@@ -31,8 +32,16 @@ ament_target_dependencies(planning_grid_node rclcpp rcl_interfaces nav_msgs)
 
 add_library(astar_core src/astar.cpp)
 target_link_libraries(astar_core PUBLIC planning_grid_core)
-add_library(path_processing_core src/path_processing.cpp src/path_optimizer.cpp)
-target_link_libraries(path_processing_core PUBLIC planning_grid_core)
+add_library(path_processing_core src/path_processing.cpp src/path_optimizer.cpp src/path_experiments.cpp)
+target_link_libraries(path_processing_core PUBLIC planning_grid_core PRIVATE Ceres::ceres)
+# The bounded numerical optimizer needs optimized residual evaluation in default builds.
+# Explicit Debug/Release configurations retain their selected compiler flags.
+if(NOT CMAKE_BUILD_TYPE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(path_processing_core PRIVATE -O2)
+endif()
+add_executable(bezier_benchmark src/bezier_benchmark.cpp)
+target_link_libraries(bezier_benchmark path_processing_core astar_core)
+ament_target_dependencies(bezier_benchmark rclcpp rcl_interfaces)
 add_executable(astar_node src/astar_node.cpp)
 target_link_libraries(astar_node astar_core path_processing_core)
 ament_target_dependencies(astar_node
@@ -44,10 +53,11 @@ install(TARGETS planning_grid_core astar_core path_processing_core EXPORT planni
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
-install(TARGETS planning_grid_node astar_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS planning_grid_node astar_node bezier_benchmark DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 ament_export_targets(planning_grid_coreTargets HAS_LIBRARY_TARGET)
+ament_export_dependencies(Ceres)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -59,6 +69,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_astar astar_core)
   ament_add_gtest(test_path_processing test/test_path_processing.cpp)
   target_link_libraries(test_path_processing path_processing_core astar_core)
+  ament_add_gtest(test_window_bezier test/test_window_bezier.cpp)
+  target_link_libraries(test_window_bezier path_processing_core)
   ament_add_gtest(test_joint_turns test/test_joint_turns.cpp)
   target_link_libraries(test_joint_turns path_processing_core)
   ament_add_pytest_test(test_astar_node test/test_astar_node.py

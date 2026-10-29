@@ -48,3 +48,11 @@ analysis:
     motion_min_duration: 0.20
     turn_merge_distance: 0.30  # metres; BOTH distance and time must permit merging
     turn_merge_time: 0.50
+    # Evaluation only; does not force a minimum controller command.
+    platform_speed_error_tolerance: 0.02  # m/s, P95 target
+    target_turn_speed_min: 0.20
+    target_turn_speed_preferred: 0.25
+    acceptance_time_ratio: 1.10
+    acceptance_event_reduction: 0.30
+    acceptance_lateral_absolute: 0.002  # metres
+    acceptance_lateral_relative: 0.10

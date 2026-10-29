@@ -13,3 +13,9 @@
     feedforward_angular_fraction: 0.75
     angular_acceleration_fraction: 0.75
     min_turn_speed: 0.03  # candidate feasibility floor, never a forced minimum command
+    # Shared algorithm policy; physical limits above stay unchanged.
+    enable_dynamic_angular_budget: false
+    speed_envelope_rounds: 20
+    speed_search_iterations: 48
+    speed_envelope_tolerance: 0.0001  # m/s
+    dynamic_budget_utilization: 0.95  # nominal margin for measured speed lag; hard angular budget unchanged

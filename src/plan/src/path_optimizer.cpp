@@ -1,6 +1,7 @@
 // Copyright 2026 car_ws contributors
 // SPDX-License-Identifier: Apache-2.0
 #include "path_optimizer.hpp"
+#include "bezier_geometry.hpp"
 
 #include <algorithm>
 #include <array>
@@ -232,63 +233,11 @@ struct Circle
   }
 };
 
-using Bezier = std::array<Point2D, 6>;
-Bezier hermite(Point2D a, double yaw_a, double ka, Point2D b, double yaw_b, double kb, double h)
-{
-  const auto da = mul(direction(yaw_a), h), db = mul(direction(yaw_b), h);
-  const auto dda = mul(direction(yaw_a + kPi / 2), h * h * ka);
-  const auto ddb = mul(direction(yaw_b + kPi / 2), h * h * kb);
-  return {a, add(a, mul(da, .2)), add(add(a, mul(da, .4)), mul(dda, .05)),
-    add(sub(b, mul(db, .4)), mul(ddb, .05)), sub(b, mul(db, .2)), b};
-}
-
-std::pair<Bezier, Bezier> split(const Bezier & b)
-{
-  Bezier left{}, right{}, work = b;
-  left[0] = b[0]; right[5] = b[5];
-  for (std::size_t j = 1; j < 6; ++j) {
-    for (std::size_t i = 0; i < 6 - j; ++i) {
-      work[i] = mul(add(work[i], work[i + 1]), .5);
-    }
-    left[j] = work[0]; right[5 - j] = work[5 - j];
-  }
-  return {left, right};
-}
-
-double choose(unsigned n, unsigned k)
-{
-  double r = 1.0;
-  for (unsigned i = 1; i <= k; ++i) {
-    r *= static_cast<double>(n + 1 - i) / i;
-  }
-  return r;
-}
-
-// Bernstein coefficients bound products on the ENTIRE interval, not only samples.
-double product_bound(const std::vector<Point2D> & a, const std::vector<Point2D> & b, bool use_dot)
-{
-  const auto n = static_cast<unsigned>(a.size() - 1), m = static_cast<unsigned>(b.size() - 1);
-  double bound = 0.0;
-  for (unsigned k = 0; k <= n + m; ++k) {
-    double coefficient = 0.0;
-    for (unsigned i = 0; i <= n; ++i) {
-      if (k < i || k - i > m) {continue;}
-      coefficient += choose(n, i) * choose(m, k - i) / choose(n + m, k) *
-        (use_dot ? dot(a[i], b[k - i]) : cross(a[i], b[k - i]));
-    }
-    bound = std::max(bound, std::abs(coefficient));
-  }
-  return bound;
-}
-
-std::vector<Point2D> derivative(const std::vector<Point2D> & p)
-{
-  std::vector<Point2D> d;
-  for (std::size_t i = 1; i < p.size(); ++i) {
-    d.push_back(mul(sub(p[i], p[i - 1]), p.size() - 1));
-  }
-  return d;
-}
+using bezier::Bezier;
+using bezier::hermite;
+using bezier::split;
+using bezier::derivative;
+using bezier::product_bound;
 
 bool bezier_samples(
   const PlanningGrid & grid, const Circle & circle, const Bezier & b,
@@ -867,6 +816,11 @@ void decorate_legacy(std::vector<PathPoint2D> & p, const PathProcessingConfig & 
 }
 }  // namespace
 
+double legacy_executable_time(std::vector<PathPoint2D> path, const PathProcessingConfig & config)
+{
+  return traversal_time(path, config);
+}
+
 std::vector<PathPoint2D> optimize_joint_path(
   const PlanningGrid & grid,
   const std::vector<Point2D> & raw, const std::vector<PathPoint2D> & baseline,
@@ -1030,7 +984,15 @@ std::string processing_report(const PathProcessingStats & stats)
     ",\"budget_exhausted\":" << (stats.budget_exhausted ? "true" : "false") <<
     ",\"budget_reason\":\"" << stats.budget_reason << "\"" <<
     ",\"work_used\":" << stats.work_used << ",\"variants_evaluated\":" <<
-    stats.variants_evaluated << ",\"corners\":[";
+    stats.variants_evaluated << ",\"dynamic_angular_budget\":" <<
+    (stats.dynamic_budget ? "true" : "false") <<
+    ",\"grid_fingerprint_fnv1a64\":\"" << stats.grid_fingerprint << "\"" <<
+    ",\"frozen_baseline_time\":" << stats.frozen_baseline_time <<
+    ",\"speed_events_before\":" << stats.speed_events_before <<
+    ",\"speed_events_after\":" << stats.speed_events_after <<
+    ",\"speed_envelope_fallback\":" << (stats.speed_envelope_fallback ? "true" : "false") <<
+    ",\"windows\":" << (stats.window_report.empty() ? "[]" : stats.window_report) <<
+    ",\"corners\":[";
   bool first = true;
   for (const auto & c : stats.corners) {
     if (c.trials.empty() && !c.retained) {continue;}
