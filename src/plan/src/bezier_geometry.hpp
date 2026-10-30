@@ -51,6 +51,19 @@ inline std::pair<Bezier, Bezier> split(const Bezier & b)
 
 inline double choose(unsigned n, unsigned k)
 {
+  // All products used by the quintic certificates have degree <= 8. These small
+  // integer binomials are exactly representable and avoid repeated inner loops.
+  static const std::array<std::array<double, 9>, 9> table = []() {
+      std::array<std::array<double, 9>, 9> values{};
+      for (std::size_t i = 0; i < values.size(); ++i) {
+        values[i][0] = values[i][i] = 1;
+        for (std::size_t j = 1; j < i; ++j) {
+          values[i][j] = values[i - 1][j - 1] + values[i - 1][j];
+        }
+      }
+      return values;
+    }();
+  if (n < table.size() && k <= n) {return table[n][k];}
   double r = 1.0;
   for (unsigned i = 1; i <= k; ++i) {
     r *= static_cast<double>(n + 1 - i) / i;

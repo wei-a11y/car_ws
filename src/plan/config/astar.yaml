@@ -61,6 +61,15 @@ planner:
       enable_turn_speed_coordination: false
       window_geometry_policy: geometry_first  # legacy retains the previous optimizer for A/B
       window_detailed_diagnostics: false  # controls/failed leaves; compact candidate history always saved
+      window_refine_min_events: 0  # require this many existing turn events; 0 disables filter
+      window_refine_rate_weight: -1.0  # -1 inherits rate_weight; otherwise only refined windows
+      window_refine_min_curvature: 0.0  # skip refinement on lower-curvature baseline windows
+      window_refine_objective: true  # opt-in peak-aware objective and comparable selection metrics
+      window_peak_weight: 1.0  # integral excess-curvature term when refine_objective is enabled
+      window_max_curvature_weight: 0.0  # sampled window maximum; zero retains old objective
+      window_coarse_budget_fraction: 0.7  # parent share for first coarse seed when prioritized
+      window_prioritize_coarse_seed: true  # opt-in budget-neutral seed ordering
+      window_local_refinement: true  # one warm local pass, only within unused parent budget
       window_include_coarse_seed: true  # scale nearest 1 also tries event-independent geometry
       window_seed_fit_tolerance: 0.005  # metres; adaptive initial fit, not a collision tolerance
       window_geometry_min_gain: 0.01  # same stop count requires at least 1% geometry improvement

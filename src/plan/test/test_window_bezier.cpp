@@ -7,6 +7,7 @@
 #include "../src/path_geometry_optimizer.hpp"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 #include "gtest/gtest.h"
 
@@ -260,3 +261,92 @@ TEST(GeometryFirst, LargeWindowCanRetainRejectedParentAndAdoptCertifiedChildren)
   }
 }
 }  // namespace
+
+TEST(PeakAwareBezier, AnalyticCurvatureRateMatchesArcLengthFiniteDifference)
+{
+  const double a[]{1, 1, .1, 1, .3}, b[]{1.7, 1.4, .6, .9, 1.2};
+  const auto curve = plan::geometry_policy_curve(a, b);
+  const auto derivative = plan::bezier::array_derivative(curve);
+  for (double t:{.05, .2, .5, .8, .95}) {
+    const double h = 1e-6;
+    const auto center = plan::bezier::geometry(curve, t);
+    const double dk_dt = (plan::bezier::geometry(curve, t + h).curvature -
+      plan::bezier::geometry(curve, t - h).curvature) / (2 * h);
+    const double speed = plan::bezier::norm(plan::bezier::array_value(derivative, t));
+    EXPECT_NEAR(center.rate, dk_dt / speed, 1e-6);
+  }
+}
+
+TEST(PeakAwareBezier, InvalidPeakWeightsAreRejectedAndDefaultsAreCompatible)
+{
+  auto c = config();
+  EXPECT_FALSE(c.window_refine_objective);
+  EXPECT_FALSE(c.window_prioritize_coarse_seed);
+  EXPECT_FALSE(c.window_local_refinement);
+  EXPECT_DOUBLE_EQ(c.window_max_curvature_weight, 0);
+  c.window_max_curvature_weight = -1;
+  EXPECT_THROW(plan::validate_path_processing_config(c), std::invalid_argument);
+  c = config();c.window_peak_weight = std::numeric_limits<double>::infinity();
+  EXPECT_THROW(plan::validate_path_processing_config(c), std::invalid_argument);
+}
+
+TEST(PeakAwareBezier, PeakAndLocalPassKeepOriginalSafetyReferenceAndG2Boundaries)
+{
+  auto c = config();
+  c.enable_window_bezier = true;c.window_geometry_policy = "geometry_first";
+  c.window_refine_objective = c.window_prioritize_coarse_seed = c.window_local_refinement = true;
+  c.window_max_curvature_weight = 1;c.window_iterations = 8;
+  c.window_solver_seconds = 3;c.window_total_seconds = 10;
+  c.window_seed_scales = {1.0};
+  const auto map = grid();
+  const std::vector<plan::Point2D> raw{{1, 1}, {3, 1}, {3, 2}, {1, 2}};
+  auto old = c;old.enable_window_bezier = false;
+  const auto baseline = plan::process_path(map, raw, old);
+  plan::PathProcessingStats stats;
+  const auto p = plan::process_experiments(map, baseline, c, stats);
+  ASSERT_FALSE(p.empty());
+  EXPECT_EQ(p.front().x, baseline.front().x);EXPECT_EQ(p.front().y, baseline.front().y);
+  EXPECT_EQ(p.back().x, baseline.back().x);EXPECT_EQ(p.back().y, baseline.back().y);
+  EXPECT_NEAR(p.front().curvature, baseline.front().curvature, 1e-10);
+  EXPECT_NE(stats.window_report.find("common_uniform_arc_samples"), std::string::npos);
+  EXPECT_NE(stats.window_report.find("\"seed_type\":\"local_refinement\""), std::string::npos)
+    << stats.window_report;
+  for (std::size_t i = 1; i < p.size(); ++i) {
+    EXPECT_TRUE(plan::line_of_sight(map, {p[i - 1].x, p[i - 1].y}, {p[i].x, p[i].y}));
+    double distance = INFINITY;
+    for (std::size_t j = 1; j < baseline.size(); ++j) {
+      const auto a = baseline[j - 1], b = baseline[j];
+      const double dx = b.x - a.x, dy = b.y - a.y;
+      const double t = std::clamp(
+        ((p[i].x - a.x) * dx + (p[i].y - a.y) * dy) /
+        (dx * dx + dy * dy), 0.0, 1.0);
+      distance = std::min(distance, std::hypot(p[i].x - a.x - t * dx, p[i].y - a.y - t * dy));
+    }
+    EXPECT_LE(distance, c.window_max_deviation + 1e-8);
+  }
+  EXPECT_LE(stats.selected_length, stats.baseline_length * c.max_length_ratio + 1e-8);
+}
+
+TEST(PeakAwareBezier, ContinuousCertificateFindsPeakBetweenSparseObjectiveSamples)
+{
+  const auto curve = plan::bezier::hermite({1, 1}, 0, 0, {2, 2}, std::acos(-1.) / 2, 0, .1);
+  double sparse = 0, dense = 0;
+  for (double t:{0., .5, 1.}) {
+    sparse = std::max(sparse, std::abs(plan::bezier::geometry(curve, t).curvature));
+  }
+  std::vector<plan::PathPoint2D> reference;
+  for (int i = 0; i <= 1000; ++i) {
+    const auto g = plan::bezier::geometry(curve, i / 1000.);
+    dense = std::max(dense, std::abs(g.curvature));
+    if (i % 250 == 0) {
+      reference.push_back({g.point.x, g.point.y, g.yaw, g.yaw, g.curvature, false});
+    }
+  }
+  ASSERT_GT(dense, 2 * sparse);
+  auto c = config();c.arc_min_radius = 2 / (sparse + dense);
+  c.max_curvature_rate = 1e9;c.window_max_deviation = 10;
+  c.resample_spacing = 10;c.arc_max_deviation = 10;c.arc_max_angle = 3;
+  const auto result = plan::certify_geometry(grid(), {curve}, reference, c);
+  EXPECT_FALSE(result.safe);
+  EXPECT_EQ(result.reason, "sampled_curvature_or_rate");
+}

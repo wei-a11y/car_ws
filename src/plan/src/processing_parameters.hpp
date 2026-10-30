@@ -135,6 +135,26 @@ inline PathProcessingConfig load_processing_config(rclcpp::Node & node)
     node, "post_processing.window_detailed_diagnostics", c.window_detailed_diagnostics);
   c.window_include_coarse_seed = processing_parameter<bool>(
     node, "post_processing.window_include_coarse_seed", c.window_include_coarse_seed);
+  c.window_refine_objective = processing_parameter<bool>(
+    node, "post_processing.window_refine_objective", c.window_refine_objective);
+  c.window_prioritize_coarse_seed = processing_parameter<bool>(
+    node, "post_processing.window_prioritize_coarse_seed", c.window_prioritize_coarse_seed);
+  c.window_local_refinement = processing_parameter<bool>(
+    node, "post_processing.window_local_refinement", c.window_local_refinement);
+  const auto refine_events = processing_parameter<std::int64_t>(
+    node, "post_processing.window_refine_min_events", c.window_refine_min_events);
+  if (refine_events < 0) {throw std::invalid_argument("Invalid refinement event count");}
+  c.window_refine_min_events = static_cast<std::size_t>(refine_events);
+  c.window_refine_rate_weight = processing_parameter<double>(
+    node, "post_processing.window_refine_rate_weight", c.window_refine_rate_weight);
+  c.window_refine_min_curvature = processing_parameter<double>(
+    node, "post_processing.window_refine_min_curvature", c.window_refine_min_curvature);
+  c.window_coarse_budget_fraction = processing_parameter<double>(
+    node, "post_processing.window_coarse_budget_fraction", c.window_coarse_budget_fraction);
+  c.window_peak_weight = processing_parameter<double>(
+    node, "post_processing.window_peak_weight", c.window_peak_weight);
+  c.window_max_curvature_weight = processing_parameter<double>(
+    node, "post_processing.window_max_curvature_weight", c.window_max_curvature_weight);
   c.window_seed_fit_tolerance = processing_parameter<double>(
     node, "post_processing.window_seed_fit_tolerance", c.window_seed_fit_tolerance);
   c.window_geometry_min_gain = processing_parameter<double>(

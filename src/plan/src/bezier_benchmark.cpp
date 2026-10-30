@@ -21,6 +21,7 @@ int main(int argc, char ** argv)
     const auto output = node->declare_parameter<std::string>("benchmark_output_dir");
     const auto preserve = node->declare_parameter<bool>("benchmark_preserve_polyline", false);
     const auto p1 = node->declare_parameter<bool>("benchmark_p1", false);
+    const auto named_variant = node->declare_parameter<std::string>("benchmark_variant", "");
     const auto inflated = node->declare_parameter<bool>("benchmark_input_inflated", false);
     const auto profile_input = node->declare_parameter<std::string>("benchmark_profile_input", "");
     std::ifstream stream(input);
@@ -92,7 +93,9 @@ int main(int argc, char ** argv)
           raw_file << q.x << ',' << q.y << '\n';
         }
       }
-      const std::vector<unsigned> variants = p1 ? std::vector<unsigned>{0U, 1U, 1U} :
+      const std::vector<unsigned> variants = !named_variant.empty() ?
+        std::vector<unsigned>{named_variant == "baseline" ? 0U : 1U} :
+      p1 ? std::vector<unsigned>{0U, 1U, 1U} :
       std::vector<unsigned>{0U, 1U, 2U, 4U, 3U, 7U};
       std::size_t variant_index = 0;
       for (unsigned flags:variants) {
@@ -101,9 +104,10 @@ int main(int argc, char ** argv)
         c.motion.enable_dynamic_angular_budget = flags & 2;
         c.enable_turn_speed_coordination = flags & 4;
         const std::string variant =
-          p1 ? std::vector<std::string>{"baseline", "legacy",
+          !named_variant.empty() ? named_variant : p1 ? std::vector<std::string>{"baseline",
+          "legacy",
           "geometry_first"}[variant_index++] : std::to_string(flags);
-        if (p1) {
+        if (p1 && named_variant.empty()) {
           c.window_geometry_policy = variant == "geometry_first" ? "geometry_first" : "legacy";
         }
         const auto begun = std::chrono::steady_clock::now();plan::PathProcessingStats stats;

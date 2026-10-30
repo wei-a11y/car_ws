@@ -354,7 +354,8 @@ def test_arc_smoothing_changes_geometry_and_preserves_interfaces(node, smoothing
     with running(command('-p', 'post_processing.enable_shortcut:=false',
                          '-p', 'post_processing.resample_spacing:=0.5',
                          '-p', f'post_processing.enable_joint_optimization:={enabled}',
-                         '-p', f'post_processing.enable_arc_smoothing:={str(smoothing).lower()}')):
+                         '-p', f'post_processing.enable_arc_smoothing:={str(smoothing).lower()}',
+                         '-p', 'post_processing.enable_window_bezier:=false')):
         harness = Harness(node)
         msg = map_message()
         msg.data[4 * 9 + 4] = 100

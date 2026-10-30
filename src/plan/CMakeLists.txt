@@ -74,6 +74,7 @@ if(BUILD_TESTING)
   target_link_libraries(test_window_bezier path_processing_core)
   ament_add_gtest(test_joint_turns test/test_joint_turns.cpp)
   target_link_libraries(test_joint_turns path_processing_core)
+  ament_add_pytest_test(test_bezier_refine_analysis test/test_bezier_refine_analysis.py)
   ament_add_pytest_test(test_astar_node test/test_astar_node.py
     TIMEOUT 60
     ENV

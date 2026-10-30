@@ -68,6 +68,12 @@ struct PathProcessingConfig
   std::string window_geometry_policy = "legacy";
   bool window_detailed_diagnostics = false;
   bool window_include_coarse_seed = true;
+  bool window_refine_objective = false, window_prioritize_coarse_seed = false;
+  bool window_local_refinement = false;
+  double window_peak_weight = 1.0, window_max_curvature_weight = 0.0;
+  double window_coarse_budget_fraction = 0.7;
+  double window_refine_min_curvature = 0.0, window_refine_rate_weight = -1.0;
+  std::size_t window_refine_min_events = 0;
   double window_seed_fit_tolerance = 0.005, window_geometry_min_gain = 0.01;
   double window_parent_budget_fraction = 0.5, window_split_min_length = 1.0;
   std::size_t window_split_max_depth = 2, window_split_min_events = 2;

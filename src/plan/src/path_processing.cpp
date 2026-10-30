@@ -402,7 +402,11 @@ void validate_path_processing_config(const PathProcessingConfig & config)
     !std::isfinite(config.window_parent_budget_fraction) ||
     config.window_parent_budget_fraction <= 0 || config.window_parent_budget_fraction >= 1 ||
     !std::isfinite(config.window_split_min_length) || config.window_split_min_length <= 0 ||
-    config.window_split_max_depth > 8 || config.window_split_min_events < 2)
+    config.window_split_max_depth > 8 || config.window_split_min_events < 2 ||
+    !std::isfinite(config.window_coarse_budget_fraction) ||
+    config.window_coarse_budget_fraction <= 0 || config.window_coarse_budget_fraction > 1 ||
+    !std::isfinite(config.window_refine_rate_weight) ||
+    (config.window_refine_rate_weight < 0 && config.window_refine_rate_weight != -1.0))
   {
     throw std::invalid_argument("Invalid geometry-first policy configuration");
   }
@@ -422,7 +426,8 @@ void validate_path_processing_config(const PathProcessingConfig & config)
   }
   for (double value : {config.window_curvature_weight, config.window_rate_weight,
       config.window_join_weight, config.window_deviation_weight, config.window_clearance_weight,
-      config.window_speed_weight, config.window_constraint_weight})
+      config.window_speed_weight, config.window_constraint_weight, config.window_peak_weight,
+      config.window_max_curvature_weight, config.window_refine_min_curvature})
   {
     if (!std::isfinite(value) || value < 0) {throw std::invalid_argument("Invalid window weight");}
   }

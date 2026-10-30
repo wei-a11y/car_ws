@@ -32,18 +32,49 @@ def main():
                         help='Frozen offline map run; required for full acceptance')
     parser.add_argument('--config', default='src/plan/config/bezier_benchmark.yaml')
     parser.add_argument('--limit', type=int, help='Development probe only; not full acceptance')
-    parser.add_argument('--variants', nargs='+', choices=['baseline', 'combined'],
-                        default=['baseline', 'combined'])
+    parser.add_argument('--variants', nargs='+',
+                        choices=['baseline', 'combined', 'current_bezier', 'optimized_bezier'])
+    parser.add_argument('--geometry-candidate',
+                        help='Use a passing geometry-only candidate from --offline-dir')
     args = parser.parse_args()
     if args.limit is None and args.offline_dir is None:
         parser.error("Full A/B requires --offline-dir to freeze windows before all trials")
     c = yaml.safe_load(Path(args.config).read_text())['benchmark']
+    geometry = args.geometry_candidate is not None
+    overrides = {}
+    if geometry:
+        if args.offline_dir is None:
+            parser.error('Geometry A/B requires its frozen offline directory')
+        gate_file = args.offline_dir/f'acceptance_{args.geometry_candidate}.json'
+        gate = json.loads(gate_file.read_text())
+        if not gate['offline_pass']:
+            parser.error('Geometry-only offline acceptance has not passed')
+        override_file = args.offline_dir/args.geometry_candidate/'overrides.json'
+        overrides = json.loads(override_file.read_text())
+        latest = next(case for case in json.loads((args.offline_dir/'inputs.json').read_text())
+                      if case['name'] == 'latest')
+        a, b = latest['scenario']['start'], latest['scenario']['goal']
+        c['scenarios'] = [dict(name='outward', start=a, goal=b),
+                          dict(name='inward', start=b, goal=a)]
+        c['output_root'] = 'log/bezier_refine_gazebo'
+        expected = ['current_bezier', 'optimized_bezier']
+    else:
+        expected = ['baseline', 'combined']
+    args.variants = args.variants or expected
+    if any(v not in expected for v in args.variants):
+        parser.error('Variant names must match the selected experiment mode')
     g = c['gazebo']
     root = Path(c['output_root']) / datetime.now(ZoneInfo('Asia/Shanghai')).strftime(
         '%Y%m%d_%H%M%S_%f_gazebo')
     root.mkdir(parents=True)
     print(root, flush=True)
-    if args.offline_dir is not None:
+    if geometry:
+        (root/'geometry_experiment.json').write_text(json.dumps({
+            'configuration': c, 'candidate': args.geometry_candidate,
+            'overrides': overrides, 'offline_gate': gate,
+            'offline_directory': str(args.offline_dir.resolve()),
+        }, indent=2)+'\n')
+    elif args.offline_dir is not None:
         subprocess.run(['python3', 'tools/analyze_bezier_results.py',
                         '--gazebo-dir', str(root), '--offline-dir', str(args.offline_dir),
                         '--freeze-only'], check=True)
@@ -71,9 +102,16 @@ def main():
             motion = yaml.safe_load(Path(c['motion_limits_file']).read_text())
             enabled = variant == 'combined'
             params = planner['planner']['ros__parameters']['post_processing']
-            params['enable_window_bezier'] = enabled
+            params['enable_window_bezier'] = enabled or geometry
             params['enable_turn_speed_coordination'] = enabled
             motion['/**']['ros__parameters']['enable_dynamic_angular_budget'] = enabled
+            if geometry:
+                params.update(c['refine']['compatibility_defaults'])
+                if variant == 'optimized_bezier':
+                    params.update(overrides)
+                params.update(enable_window_bezier=True, enable_turn_speed_coordination=False,
+                              window_geometry_policy='geometry_first',
+                              window_detailed_diagnostics=True)
             planner_file = root / f'{variant}_planner.yaml'
             motion_file = root / f'{variant}_motion.yaml'
             planner_file.write_text(yaml.safe_dump(planner, sort_keys=False))
@@ -215,7 +253,7 @@ def main():
                     results.append(report)
                     (root / 'results.json').write_text(json.dumps(results, indent=2)+'\n')
                     print(directory, json.dumps(report), flush=True)
-                    if variant == 'baseline' and not report['goal_reached']:
+                    if variant in ('baseline', 'current_bezier') and not report['goal_reached']:
                         raise RuntimeError('Baseline prerequisite failed; A/B acceptance stopped')
     finally:
         rclpy.shutdown()
