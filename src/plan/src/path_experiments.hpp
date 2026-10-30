@@ -8,6 +8,9 @@ namespace plan
 {
 std::vector<SpeedSegment> path_speed_segments(const std::vector<PathPoint2D> & path);
 double executable_time(const std::vector<PathPoint2D> & path, const MotionLimits & motion);
+std::size_t path_speed_events(
+  const std::vector<PathPoint2D> & path,
+  const PathProcessingConfig & config);
 std::vector<PathPoint2D> process_experiments(
   const PlanningGrid & grid, const std::vector<PathPoint2D> & baseline,
   const PathProcessingConfig & config, PathProcessingStats & stats);

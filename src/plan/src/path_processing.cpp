@@ -394,6 +394,18 @@ double path_cost(
 void validate_path_processing_config(const PathProcessingConfig & config)
 {
   validate_motion_limits(config.motion);
+  if ((config.window_geometry_policy != "legacy" &&
+    config.window_geometry_policy != "geometry_first") ||
+    !std::isfinite(config.window_seed_fit_tolerance) || config.window_seed_fit_tolerance <= 0 ||
+    !std::isfinite(config.window_geometry_min_gain) || config.window_geometry_min_gain < 0 ||
+    config.window_geometry_min_gain >= 1 ||
+    !std::isfinite(config.window_parent_budget_fraction) ||
+    config.window_parent_budget_fraction <= 0 || config.window_parent_budget_fraction >= 1 ||
+    !std::isfinite(config.window_split_min_length) || config.window_split_min_length <= 0 ||
+    config.window_split_max_depth > 8 || config.window_split_min_events < 2)
+  {
+    throw std::invalid_argument("Invalid geometry-first policy configuration");
+  }
   for (double value : {config.window_merge_gap, config.window_extension,
       config.window_knot_spacing, config.window_max_deviation, config.window_target_speed,
       config.window_target_radius, config.window_transition_scale,

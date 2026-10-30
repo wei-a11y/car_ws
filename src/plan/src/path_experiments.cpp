@@ -3,6 +3,7 @@
 #include "path_experiments.hpp"
 #include "path_optimizer.hpp"
 #include "bezier_geometry.hpp"
+#include "path_geometry_optimizer.hpp"
 
 #include <ceres/ceres.h>
 #include <algorithm>
@@ -515,6 +516,12 @@ std::vector<SpeedSegment> path_speed_segments(const std::vector<PathPoint2D> & p
   }
   return edges;
 }
+std::size_t path_speed_events(
+  const std::vector<PathPoint2D> & path,
+  const PathProcessingConfig & config)
+{
+  return speed_events(speed_envelope(path_speed_segments(path), config.motion), config);
+}
 double executable_time(const std::vector<PathPoint2D> & p, const MotionLimits & m)
 {
   if (p.size() < 2) {return 0;}
@@ -539,6 +546,41 @@ std::vector<PathPoint2D> process_experiments(
     stats.dynamic_budget = c.motion.enable_dynamic_angular_budget;
     stats.window_report = "[]";
     return {point};
+  }
+  if (c.enable_window_bezier && c.window_geometry_policy == "geometry_first") {
+    auto best = optimize_window_geometry(grid, baseline, c, stats);
+    geometry_caps(best, c.motion);
+    stats.dynamic_budget = c.motion.enable_dynamic_angular_budget;
+    auto envelope = speed_envelope(path_speed_segments(best), c.motion);
+    stats.speed_events_before = speed_events(envelope, c);
+    coordinate_speed(best, envelope, c, stats.frozen_baseline_time * c.window_max_time_ratio);
+    if (executable_time(best, c.motion) > stats.frozen_baseline_time * c.window_max_time_ratio ||
+      lengths(best).back() > stats.baseline_length * c.max_length_ratio || !global_free(grid, best))
+    {
+      best = baseline;geometry_caps(best, c.motion);
+      stats.geometry_fallback_reason = "final_length_time_or_collision";
+      std::ostringstream mapping;mapping.precision(16);mapping << '[';
+      const auto s = lengths(best);
+      for (std::size_t i = 0; i < s.size(); ++i) {
+        if (i) {
+          mapping << ',';
+        }
+        mapping << s[i];
+      }
+      mapping << ']';stats.geometry_reference_s = mapping.str();
+    }
+    envelope = speed_envelope(path_speed_segments(best), c.motion);
+    stats.speed_events_after = speed_events(envelope, c);
+    stats.speed_envelope_fallback = envelope.conservative_fallback;
+    stats.selected_length = lengths(best).back();stats.estimated_time = executable_time(
+      best,
+      c.motion);
+    stats.retained_corners = stops(best);stats.minimum_clearance = INFINITY;
+    for (const auto & p:best) {
+      stats.minimum_clearance = std::min(stats.minimum_clearance, grid.clearance_at(p.x, p.y));
+    }
+    stats.final_geometry_id = geometry_fingerprint(best);
+    return best;
   }
   auto old = c.motion;old.enable_dynamic_angular_budget = false;
   auto frozen = baseline;geometry_caps(frozen, old);

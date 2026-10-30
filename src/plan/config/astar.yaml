@@ -57,8 +57,17 @@ planner:
       smoothness_weight: 0.2  # seconds, normalized penalty
 
       # Experimental: enable explicitly; all distances are metres, times seconds.
-      enable_window_bezier: false
+      enable_window_bezier: true
       enable_turn_speed_coordination: false
+      window_geometry_policy: geometry_first  # legacy retains the previous optimizer for A/B
+      window_detailed_diagnostics: false  # controls/failed leaves; compact candidate history always saved
+      window_include_coarse_seed: true  # scale nearest 1 also tries event-independent geometry
+      window_seed_fit_tolerance: 0.005  # metres; adaptive initial fit, not a collision tolerance
+      window_geometry_min_gain: 0.01  # same stop count requires at least 1% geometry improvement
+      window_parent_budget_fraction: 0.5  # reserve the rest for eligible child windows
+      window_split_max_depth: 2
+      window_split_min_length: 1.0
+      window_split_min_events: 2
       window_merge_gap: 1.0
       window_extension: 0.3
       window_knot_spacing: 0.5

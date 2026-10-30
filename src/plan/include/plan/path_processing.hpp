@@ -65,6 +65,12 @@ struct PathProcessingConfig
   std::size_t fallback_blend_samples = 4, curve_max_depth = 20;
   double clearance_target = 0.20, clearance_weight = 0.5, smoothness_weight = 0.2;
   bool enable_window_bezier = false, enable_turn_speed_coordination = false;
+  std::string window_geometry_policy = "legacy";
+  bool window_detailed_diagnostics = false;
+  bool window_include_coarse_seed = true;
+  double window_seed_fit_tolerance = 0.005, window_geometry_min_gain = 0.01;
+  double window_parent_budget_fraction = 0.5, window_split_min_length = 1.0;
+  std::size_t window_split_max_depth = 2, window_split_min_events = 2;
   double window_merge_gap = 1.0, window_extension = 0.30, window_knot_spacing = 0.50;
   double window_max_deviation = 0.20, window_max_time_ratio = 1.10;
   double window_target_speed = 0.25, window_target_radius = 0.70;
@@ -123,6 +129,8 @@ struct PathProcessingStats
   double frozen_baseline_time = 0.0;
   std::size_t speed_events_before = 0, speed_events_after = 0;
   bool dynamic_budget = false, speed_envelope_fallback = false;
+  std::string geometry_policy, final_geometry_id, geometry_fallback_reason;
+  std::string geometry_reference_s;
 };
 
 void validate_path_processing_config(const PathProcessingConfig & config);

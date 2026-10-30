@@ -32,7 +32,8 @@ ament_target_dependencies(planning_grid_node rclcpp rcl_interfaces nav_msgs)
 
 add_library(astar_core src/astar.cpp)
 target_link_libraries(astar_core PUBLIC planning_grid_core)
-add_library(path_processing_core src/path_processing.cpp src/path_optimizer.cpp src/path_experiments.cpp)
+add_library(path_processing_core src/path_processing.cpp src/path_optimizer.cpp
+  src/path_experiments.cpp src/path_geometry_optimizer.cpp)
 target_link_libraries(path_processing_core PUBLIC planning_grid_core PRIVATE Ceres::ceres)
 # The bounded numerical optimizer needs optimized residual evaluation in default builds.
 # Explicit Debug/Release configurations retain their selected compiler flags.

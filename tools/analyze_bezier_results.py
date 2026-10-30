@@ -44,6 +44,8 @@ def freeze(offline, destination, config):
         speed = pd.read_csv(offline / f'{name}_7_speed.csv')
         windows = []
         for number, window in enumerate(case['report']['windows']):
+            if window.get('parent', -1) >= 0:
+                continue  # Child attempts belong to their fixed root acceptance window.
             if 'begin_index' not in window:
                 continue
             a, b = window['begin_index'], window['end_index']

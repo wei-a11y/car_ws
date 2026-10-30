@@ -7,6 +7,18 @@ benchmark:
   motion_limits_file: src/plan/config/motion_limits.yaml
   output_root: log/bezier_window
   initial_yaw: 0.0
+  p1:
+    frozen_run: data/path_record/run_20261029_184651_724167
+    variants: [baseline, legacy, geometry_first]
+    front_region: [1.5, 3.0]
+    bottleneck_region: [11.5, 13.5]
+    diagnostic_window_seconds: 2.0
+    diagnostic_path_seconds: 8.0
+    required_curvature_reduction: 0.10
+    required_rate_bound: 30.0
+    start: [0.0, 0.0]
+    goal: [-4.375, 7.645]
+    max_invalid_retries: 1
   repeats_per_direction: 3
   gazebo:
     ros_domain_id: 132

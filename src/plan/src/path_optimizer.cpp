@@ -992,6 +992,11 @@ std::string processing_report(const PathProcessingStats & stats)
     ",\"speed_events_after\":" << stats.speed_events_after <<
     ",\"speed_envelope_fallback\":" << (stats.speed_envelope_fallback ? "true" : "false") <<
     ",\"windows\":" << (stats.window_report.empty() ? "[]" : stats.window_report) <<
+    ",\"geometry_policy\":\"" << stats.geometry_policy <<
+    "\",\"final_geometry_id\":\"" << stats.final_geometry_id <<
+    "\",\"geometry_fallback_reason\":\"" << stats.geometry_fallback_reason << "\"" <<
+    ",\"geometry_reference_s\":" <<
+    (stats.geometry_reference_s.empty() ? "[]" : stats.geometry_reference_s) <<
     ",\"corners\":[";
   bool first = true;
   for (const auto & c : stats.corners) {

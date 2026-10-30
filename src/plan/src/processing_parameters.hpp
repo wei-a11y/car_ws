@@ -129,6 +129,28 @@ inline PathProcessingConfig load_processing_config(rclcpp::Node & node)
   c.enable_turn_speed_coordination = processing_parameter<bool>(
     node,
     "post_processing.enable_turn_speed_coordination", c.enable_turn_speed_coordination);
+  c.window_geometry_policy = processing_parameter<std::string>(
+    node, "post_processing.window_geometry_policy", c.window_geometry_policy);
+  c.window_detailed_diagnostics = processing_parameter<bool>(
+    node, "post_processing.window_detailed_diagnostics", c.window_detailed_diagnostics);
+  c.window_include_coarse_seed = processing_parameter<bool>(
+    node, "post_processing.window_include_coarse_seed", c.window_include_coarse_seed);
+  c.window_seed_fit_tolerance = processing_parameter<double>(
+    node, "post_processing.window_seed_fit_tolerance", c.window_seed_fit_tolerance);
+  c.window_geometry_min_gain = processing_parameter<double>(
+    node, "post_processing.window_geometry_min_gain", c.window_geometry_min_gain);
+  c.window_parent_budget_fraction = processing_parameter<double>(
+    node, "post_processing.window_parent_budget_fraction", c.window_parent_budget_fraction);
+  c.window_split_min_length = processing_parameter<double>(
+    node, "post_processing.window_split_min_length", c.window_split_min_length);
+  const auto split_depth = processing_parameter<std::int64_t>(
+    node, "post_processing.window_split_max_depth", c.window_split_max_depth);
+  if (split_depth < 0 || split_depth > 8) {
+    throw std::invalid_argument("Invalid window split depth");
+  }
+  c.window_split_max_depth = static_cast<std::size_t>(split_depth);
+  c.window_split_min_events = positive_count(
+    "post_processing.window_split_min_events", c.window_split_min_events);
   c.window_merge_gap = processing_parameter<double>(
     node, "post_processing.window_merge_gap",
     c.window_merge_gap);
