@@ -1,0 +1,12 @@
+# Experiment overrides only. Never changes deployment motion limits.
+joint_bezier:
+  main_record: data/path_record/run_20261031_202141_283365
+  regression_record: data/path_record/run_20261029_184651_724167
+  repeats: 5
+  geometry_overrides:
+    window_feature_refinement: true
+  acceptance:
+    curvature_reduction: 0.10
+    rate_rms_reduction: 0.15
+    coordination_time_loss: 0.02
+    regression_time_loss: 0.02

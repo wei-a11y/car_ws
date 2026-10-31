@@ -60,7 +60,8 @@ def execute(binary, case, output, planner, motion, variant, profile=None):
     env = dict(os.environ, ROS_LOG_DIR=str((output/'ros_logs').resolve()),
                ROS_LOCALHOST_ONLY='1')
     with (output/'benchmark.log').open('w') as stream:
-        subprocess.run(command, check=True, env=env, stdout=stream, stderr=subprocess.STDOUT)
+        subprocess.run(command, check=True, env=env, stdout=stream, stderr=subprocess.STDOUT,
+                       timeout=30)
     return output/'case_baseline.csv'
 
 
