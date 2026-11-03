@@ -106,8 +106,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('root', type=Path)
     parser.add_argument('--stage', choices=['baseline', 'geometry'], default='baseline')
+    parser.add_argument('--attempt')
     args = parser.parse_args()
     root = args.root
+    if args.attempt and (args.stage != 'geometry' or Path(args.attempt).name != args.attempt):
+        parser.error('Attempt must identify a geometry experiment directory')
+    work_root = root/'attempts'/args.attempt if args.attempt else root
     check_protected(root)
     settings = json.loads((root/'joint_configuration.json').read_text())
     cases = json.loads((root/'inputs.json').read_text())
@@ -122,14 +126,15 @@ def main():
             regions[name] = fixed_regions(rows, first['report'])
         for repeat in range(settings['repeats']):
             run = f'{name}_{repeat+1}'
-            directory, result, rows = load_result(root, 'A0', run)
-            _, speed_result, speed_rows = load_result(root, 'A', run)
+            control_root = work_root/'control' if args.stage == 'geometry' else root
+            directory, result, rows = load_result(control_root, 'A0', run)
+            _, speed_result, speed_rows = load_result(control_root, 'A', run)
             if not speed_result['speed_only'] or not same_geometry(rows, speed_rows):
                 raise ValueError(f'Unpaired speed replay: {run}')
             analyses[name]['baseline'].append(summarize_run(directory, result, rows,
                                                           regions[name]))
             if args.stage == 'geometry':
-                directory, result, rows = load_result(root, 'B0', run)
+                directory, result, rows = load_result(work_root, 'B0', run)
                 analyses[name]['candidate'].append(summarize_run(directory, result, rows,
                                                                regions[name]))
         if args.stage == 'geometry':
@@ -140,8 +145,8 @@ def main():
     targets_present = any(r['target'] for r in regions['latest'])
     result = {'stage': args.stage, 'complete': True, 'targets_present': targets_present,
               'cases': gates, 'pass': targets_present and all(g['pass'] for g in gates.values())}
-    write_json(root/f'{args.stage}_analysis.json', analyses)
-    write_json(root/f'{args.stage}_acceptance.json', result)
+    write_json(work_root/f'{args.stage}_analysis.json', analyses)
+    write_json(work_root/f'{args.stage}_acceptance.json', result)
     print(json.dumps(result, indent=2))
 
 

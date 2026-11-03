@@ -72,8 +72,9 @@ inline double choose(unsigned n, unsigned k)
 }
 
 // Bernstein coefficients bound products on the ENTIRE interval, not only samples.
+template<typename A, typename B>
 inline double product_bound(
-  const std::vector<Point2D> & a, const std::vector<Point2D> & b,
+  const A & a, const B & b,
   bool use_dot)
 {
   const auto n = static_cast<unsigned>(a.size() - 1), m = static_cast<unsigned>(b.size() - 1);
@@ -148,10 +149,10 @@ inline Geometry geometry(const Bezier & b, double t)
     cross(v, j) / std::pow(n, 4) - 3 * c * dot(v, a) / std::pow(n, 6)};
 }
 struct Bounds {double lower, curvature, rate, envelope;};
-inline Bounds bounds(const Bezier & b, double derivative_floor = 0.0)
+template<typename D1, typename D2, typename D3>
+inline Bounds derivative_bounds(
+  const Bezier & b, const D1 & d1, const D2 & d2, const D3 & d3, double derivative_floor)
 {
-  const auto d1 = derivative(std::vector<Point2D>(b.begin(), b.end()));
-  const auto d2 = derivative(d1), d3 = derivative(d2);
   const auto chord = sub(b.back(), b.front());
   const double length = norm(chord);
   double lower = INFINITY, envelope = 0;
@@ -171,6 +172,19 @@ inline Bounds bounds(const Bezier & b, double derivative_floor = 0.0)
   return {lower, safe > 0 ? c / std::pow(safe, 3) : INFINITY,
     safe > 0 ? product_bound(d1, d3, false) / std::pow(safe, 4) +
     3 * c * product_bound(d1, d2, true) / std::pow(safe, 6) : INFINITY, envelope};
+}
+inline Bounds bounds(const Bezier & b, double derivative_floor = 0.0)
+{
+  const auto d1 = derivative(std::vector<Point2D>(b.begin(), b.end()));
+  const auto d2 = derivative(d1), d3 = derivative(d2);
+  return derivative_bounds(b, d1, d2, d3, derivative_floor);
+}
+inline Bounds fixed_bounds(const Bezier & b, double derivative_floor = 0.0)
+{
+  const auto d1 = array_derivative(b);
+  const auto d2 = array_derivative(d1);
+  const auto d3 = array_derivative(d2);
+  return derivative_bounds(b, d1, d2, d3, derivative_floor);
 }
 inline std::pair<Bezier, Bezier> split_at(const Bezier & b, double t)
 {

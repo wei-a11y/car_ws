@@ -394,6 +394,18 @@ double path_cost(
 void validate_path_processing_config(const PathProcessingConfig & config)
 {
   validate_motion_limits(config.motion);
+  if ((config.coordination_policy != "legacy" && config.coordination_policy != "bounded") ||
+    !std::isfinite(config.coordination_max_time_loss) || config.coordination_max_time_loss < 0 ||
+    config.coordination_max_time_loss > 0.10 || config.coordination_max_candidates == 0 ||
+    config.coordination_trim_fractions.empty() || config.coordination_trim_fractions.size() > 8)
+  {
+    throw std::invalid_argument("Invalid bounded speed coordination policy");
+  }
+  for (double fraction:config.coordination_trim_fractions) {
+    if (!std::isfinite(fraction) || fraction <= 0 || fraction > 1) {
+      throw std::invalid_argument("Invalid coordination trim fraction");
+    }
+  }
   if ((config.window_geometry_policy != "legacy" &&
     config.window_geometry_policy != "geometry_first") ||
     !std::isfinite(config.window_seed_fit_tolerance) || config.window_seed_fit_tolerance <= 0 ||
@@ -410,6 +422,13 @@ void validate_path_processing_config(const PathProcessingConfig & config)
   {
     throw std::invalid_argument("Invalid geometry-first policy configuration");
   }
+  if (config.window_feature_exit_curvature >= config.window_feature_enter_curvature ||
+    config.window_feature_min_turns == 0 || config.window_feature_max_passes == 0 ||
+    config.window_feature_max_passes > 8 || config.window_feature_sample_depth == 0 ||
+    config.window_feature_sample_depth > 6)
+  {
+    throw std::invalid_argument("Invalid feature refinement hysteresis or work limits");
+  }
   for (double value : {config.window_merge_gap, config.window_extension,
       config.window_knot_spacing, config.window_max_deviation, config.window_target_speed,
       config.window_target_radius, config.window_transition_scale,
@@ -418,7 +437,11 @@ void validate_path_processing_config(const PathProcessingConfig & config)
       config.window_total_seconds, config.coordination_min_gain, config.coordination_max_gap,
       config.coordination_acceleration_threshold, config.coordination_min_duration,
       config.coordination_acceleration_filter_tau, config.coordination_platform_min_speed,
-      config.coordination_platform_min_length})
+      config.coordination_platform_min_length, config.window_feature_enter_curvature,
+      config.window_feature_exit_curvature, config.window_feature_min_length,
+      config.window_feature_knot_min_spacing, config.window_feature_bound_tolerance,
+      config.window_feature_rate_weight, config.coordination_group_max_gap,
+      config.coordination_curvature_threshold})
   {
     if (!std::isfinite(value) || value <= 0) {
       throw std::invalid_argument("Window and coordination scales must be positive");
@@ -427,7 +450,8 @@ void validate_path_processing_config(const PathProcessingConfig & config)
   for (double value : {config.window_curvature_weight, config.window_rate_weight,
       config.window_join_weight, config.window_deviation_weight, config.window_clearance_weight,
       config.window_speed_weight, config.window_constraint_weight, config.window_peak_weight,
-      config.window_max_curvature_weight, config.window_refine_min_curvature})
+      config.window_max_curvature_weight, config.window_refine_min_curvature,
+      config.window_feature_min_curvature})
   {
     if (!std::isfinite(value) || value < 0) {throw std::invalid_argument("Invalid window weight");}
   }

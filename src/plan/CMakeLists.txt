@@ -33,7 +33,7 @@ ament_target_dependencies(planning_grid_node rclcpp rcl_interfaces nav_msgs)
 add_library(astar_core src/astar.cpp)
 target_link_libraries(astar_core PUBLIC planning_grid_core)
 add_library(path_processing_core src/path_processing.cpp src/path_optimizer.cpp
-  src/path_experiments.cpp src/path_geometry_optimizer.cpp)
+  src/path_experiments.cpp src/path_geometry_optimizer.cpp src/path_speed_coordination.cpp)
 target_link_libraries(path_processing_core PUBLIC planning_grid_core PRIVATE Ceres::ceres)
 # The bounded numerical optimizer needs optimized residual evaluation in default builds.
 # Explicit Debug/Release configurations retain their selected compiler flags.
@@ -72,6 +72,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_path_processing path_processing_core astar_core)
   ament_add_gtest(test_window_bezier test/test_window_bezier.cpp)
   target_link_libraries(test_window_bezier path_processing_core)
+  ament_add_gtest(test_speed_coordination test/test_speed_coordination.cpp)
+  target_link_libraries(test_speed_coordination path_processing_core)
   ament_add_gtest(test_joint_turns test/test_joint_turns.cpp)
   target_link_libraries(test_joint_turns path_processing_core)
   ament_add_pytest_test(test_bezier_refine_analysis test/test_bezier_refine_analysis.py)

@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Run isolated, resettable Gazebo A/B trials; stop if a baseline prerequisite fails."""
 import argparse
+from copy import deepcopy
 from datetime import datetime
 import json
 import math
@@ -14,6 +15,19 @@ import time
 from zoneinfo import ZoneInfo
 
 import yaml
+
+
+def dual_switches_match(experiment):
+    """Require actual captured parameters, including the executor's budget switch."""
+    try:
+        planner = experiment['parameters']['/planner']['values']
+        controller = experiment['parameters']['/lqr_controller']['values']
+        return (planner['post_processing.enable_window_bezier'] is True and
+                planner['post_processing.enable_turn_speed_coordination'] is True and
+                planner['enable_dynamic_angular_budget'] is False and
+                controller['enable_dynamic_angular_budget'] is False)
+    except KeyError:
+        return False
 
 
 def stop(process):
@@ -33,7 +47,9 @@ def main():
     parser.add_argument('--config', default='src/plan/config/bezier_benchmark.yaml')
     parser.add_argument('--limit', type=int, help='Development probe only; not full acceptance')
     parser.add_argument('--variants', nargs='+',
-                        choices=['baseline', 'combined', 'current_bezier', 'optimized_bezier'])
+                        choices=['baseline', 'combined', 'current_bezier', 'optimized_bezier', 'A'])
+    parser.add_argument('--dual-baseline', action='store_true',
+                        help='Run only A from the frozen two-feature baseline; never enables dynamic budget')
     parser.add_argument('--geometry-candidate',
                         help='Use a passing geometry-only candidate from --offline-dir')
     args = parser.parse_args()
@@ -41,8 +57,23 @@ def main():
         parser.error("Full A/B requires --offline-dir to freeze windows before all trials")
     c = yaml.safe_load(Path(args.config).read_text())['benchmark']
     geometry = args.geometry_candidate is not None
+    if args.dual_baseline and geometry:
+        parser.error('Dual baseline and geometry-only experiment are separate modes')
     overrides = {}
-    if geometry:
+    if args.dual_baseline:
+        if args.offline_dir is None:
+            parser.error('Dual baseline requires a frozen offline directory')
+        gate = json.loads((args.offline_dir/'baseline_acceptance.json').read_text())
+        if not gate['pass']:
+            parser.error('Frozen paired baseline has not passed')
+        latest = next(case for case in json.loads((args.offline_dir/'inputs.json').read_text())
+                      if case['name'] == 'latest')
+        a, b = latest['scenario']['start'], latest['scenario']['goal']
+        c['scenarios'] = [dict(name='outward', start=a, goal=b),
+                          dict(name='inward', start=b, goal=a)]
+        c['output_root'] = 'log/joint_bezier_gazebo'
+        expected = ['A']
+    elif geometry:
         if args.offline_dir is None:
             parser.error('Geometry A/B requires its frozen offline directory')
         gate_file = args.offline_dir/f'acceptance_{args.geometry_candidate}.json'
@@ -68,7 +99,12 @@ def main():
         '%Y%m%d_%H%M%S_%f_gazebo')
     root.mkdir(parents=True)
     print(root, flush=True)
-    if geometry:
+    if args.dual_baseline:
+        (root/'dual_baseline_experiment.json').write_text(json.dumps({
+            'configuration': c, 'offline_directory': str(args.offline_dir.resolve()),
+            'frozen_case': latest, 'offline_gate': gate,
+        }, indent=2)+'\n')
+    elif geometry:
         (root/'geometry_experiment.json').write_text(json.dumps({
             'configuration': c, 'candidate': args.geometry_candidate,
             'overrides': overrides, 'offline_gate': gate,
@@ -98,13 +134,19 @@ def main():
     try:
         trial_index = 0
         for variant in args.variants:
-            planner = yaml.safe_load(Path(c['planner_params_file']).read_text())
-            motion = yaml.safe_load(Path(c['motion_limits_file']).read_text())
+            planner = deepcopy(latest['planner']) if args.dual_baseline else yaml.safe_load(
+                Path(c['planner_params_file']).read_text())
+            motion = deepcopy(latest['motion']) if args.dual_baseline else yaml.safe_load(
+                Path(c['motion_limits_file']).read_text())
             enabled = variant == 'combined'
             params = planner['planner']['ros__parameters']['post_processing']
             params['enable_window_bezier'] = enabled or geometry
             params['enable_turn_speed_coordination'] = enabled
             motion['/**']['ros__parameters']['enable_dynamic_angular_budget'] = enabled
+            if args.dual_baseline:
+                params.update(enable_window_bezier=True, enable_turn_speed_coordination=True,
+                              window_geometry_policy='geometry_first',
+                              window_detailed_diagnostics=True)
             if geometry:
                 params.update(c['refine']['compatibility_defaults'])
                 if variant == 'optimized_bezier':
@@ -249,12 +291,26 @@ def main():
                             for subscription in subscriptions:
                                 node.destroy_subscription(subscription)
                             node.destroy_node()
+                    if args.dual_baseline:
+                        captures = list(directory.glob('record/run_*/path_0001/experiment.json'))
+                        report['configuration_matches'] = len(captures) == 1 and dual_switches_match(
+                            json.loads(captures[0].read_text()))
+                        if captures:
+                            actual = json.loads(captures[0].read_text())
+                            original = json.loads((Path(latest['source_record'])/
+                                                   'path_0001/experiment.json').read_text())
+                            report['map_matches'] = actual['map']['sha256'] == original['map']['sha256']
+                        else:
+                            report['map_matches'] = False
                     (directory / 'result.json').write_text(json.dumps(report, indent=2)+'\n')
                     results.append(report)
                     (root / 'results.json').write_text(json.dumps(results, indent=2)+'\n')
                     print(directory, json.dumps(report), flush=True)
                     if variant in ('baseline', 'current_bezier') and not report['goal_reached']:
                         raise RuntimeError('Baseline prerequisite failed; A/B acceptance stopped')
+                    if args.dual_baseline and not all(report.get(key, False) for key in (
+                            'goal_reached', 'configuration_matches', 'map_matches')):
+                        raise RuntimeError('Dual baseline prerequisite failed; acceptance stopped')
     finally:
         rclpy.shutdown()
 

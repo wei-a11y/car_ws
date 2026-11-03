@@ -70,6 +70,17 @@ planner:
       window_coarse_budget_fraction: 0.7  # parent share for first coarse seed when prioritized
       window_prioritize_coarse_seed: true  # opt-in budget-neutral seed ordering
       window_local_refinement: true  # one warm local pass, only within unused parent budget
+      window_feature_refinement: false  # experimental; promote only after fixed-input acceptance
+      window_feature_enter_curvature: 0.15  # signed-turn hysteresis, 1/m
+      window_feature_exit_curvature: 0.05
+      window_feature_min_length: 0.12  # reject short sign flicker, m
+      window_feature_knot_min_spacing: 0.15
+      window_feature_bound_tolerance: 0.05  # relative interval-bound/sample gap
+      window_feature_rate_weight: 4.0  # only for feature-eligible windows
+      window_feature_min_curvature: 2.0  # preserve already gentle windows, 1/m
+      window_feature_min_turns: 4  # dense multi-turn groups; simple S bends retain current strategy
+      window_feature_max_passes: 3
+      window_feature_sample_depth: 3
       window_include_coarse_seed: true  # scale nearest 1 also tries event-independent geometry
       window_seed_fit_tolerance: 0.005  # metres; adaptive initial fit, not a collision tolerance
       window_geometry_min_gain: 0.01  # same stop count requires at least 1% geometry improvement
@@ -105,6 +116,12 @@ planner:
       window_min_tangent_ratio: 0.05  # regularity penalty relative to interval chord
       window_constraint_weight: 100.0  # sampled hard-bound penalty; independent certification still required
       coordination_min_gain: 0.005  # m/s; aligns with 0.02 m/s^2 for 0.20 s
+      coordination_policy: legacy  # bounded remains opt-in until joint closed-loop acceptance
+      coordination_max_time_loss: 0.02  # local groups and complete uncoordinated envelope
+      coordination_group_max_gap: 1.0  # merge nearby curved portions; independent of search lookahead
+      coordination_curvature_threshold: 0.10  # 1/m; rate-limited portions are also included
+      coordination_max_candidates: 512
+      coordination_trim_fractions: [0.05, 0.1, 0.15, 0.25, 0.4, 0.6, 0.8, 1.0]
       coordination_max_gap: 1.0
       coordination_max_rounds: 20
       coordination_enable_platforms: true  # only within eligible curved portions, never whole-route slowdown

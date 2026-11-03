@@ -1,0 +1,11 @@
+# Frozen-geometry experiments only; no deployment switch is changed.
+bounded_coordination:
+  geometry_attempt: dense
+  overrides:
+    coordination_policy: bounded
+    coordination_max_time_loss: 0.02
+    coordination_group_max_gap: 1.0
+    coordination_curvature_threshold: 0.10
+    coordination_max_gap: 4.0
+    coordination_max_candidates: 512
+    coordination_trim_fractions: [0.05, 0.1, 0.15, 0.25, 0.4, 0.6, 0.8, 1.0]

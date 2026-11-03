@@ -27,6 +27,8 @@ int main(int argc, char ** argv)
     const auto profile_input = node->declare_parameter<std::string>("benchmark_profile_input", "");
     const auto configured = node->declare_parameter<bool>("benchmark_use_config_switches", false);
     const auto speed_only = node->declare_parameter<bool>("benchmark_speed_only", false);
+    const auto speed_time_limit =
+      node->declare_parameter<double>("benchmark_speed_time_limit", -1.0);
     if (speed_only && (!configured || profile_input.empty())) {
       throw std::invalid_argument("Speed replay requires configured switches and a frozen profile");
     }
@@ -124,7 +126,10 @@ int main(int argc, char ** argv)
           c.window_geometry_policy = variant == "geometry_first" ? "geometry_first" : "legacy";
         }
         const auto begun = std::chrono::steady_clock::now();plan::PathProcessingStats stats;
-        const auto path = frozen_profile.empty() ? plan::process_path(grid, raw, c, &stats) :
+        const auto path = speed_only ? plan::process_frozen_speed(
+          frozen_profile, c, stats, speed_time_limit > 0 ? speed_time_limit :
+          std::numeric_limits<double>::infinity()) :
+          frozen_profile.empty() ? plan::process_path(grid, raw, c, &stats) :
           plan::process_experiments(grid, frozen_profile, c, stats);
         stats.final_geometry_id = plan::geometry_fingerprint(path);
         if (speed_only && stats.final_geometry_id != plan::geometry_fingerprint(frozen_profile)) {
@@ -154,6 +159,7 @@ int main(int argc, char ** argv)
             p.curvature_bound << ',' << p.curvature_rate_bound << '\n';
         }
         std::ofstream speed(output + "/" + name + "_" + variant + "_speed.csv");
+        speed.precision(17);
         speed << "distance,speed\n";
         for (std::size_t i = 0; i < envelope.speed.size(); ++i) {
           speed << envelope.distance[i] << ',' << envelope.speed[i] << '\n';
@@ -172,7 +178,8 @@ int main(int argc, char ** argv)
           const double lateral = edge.curvature > 0 ?
             std::sqrt(c.motion.lateral_acceleration / edge.curvature) : INFINITY;
           const double budget = plan::angular_budget(c.motion) /
-            (c.motion.enable_dynamic_angular_budget ? 1.0 / c.motion.dynamic_budget_utilization : 2.0);
+            (c.motion.enable_dynamic_angular_budget ? 1.0 /
+            c.motion.dynamic_budget_utilization : 2.0);
           const double rate = edge.rate > 0 ? std::sqrt(budget / edge.rate) : INFINITY;
           const double cap = std::min({nominal, angular, lateral, rate, edge.cap});
           std::string reason;

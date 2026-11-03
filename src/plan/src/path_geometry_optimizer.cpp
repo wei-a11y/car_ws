@@ -3,6 +3,7 @@
 #include "path_geometry_optimizer.hpp"
 #include "path_experiments.hpp"
 #include "path_optimizer.hpp"
+#include "path_turn_features.hpp"
 #include <ceres/ceres.h>
 #include <algorithm>
 #include <chrono>
@@ -395,27 +396,79 @@ std::vector<double> initial_knots(
   }
   return knots;
 }
+std::vector<double> objective_parameters(const Bezier & curve, const PathProcessingConfig & c)
+{
+  std::vector<double> out;
+  for (std::size_t i = 0; i <= c.window_objective_samples; ++i) {
+    out.push_back(static_cast<double>(i) / c.window_objective_samples);
+  }
+  if (c.window_feature_refinement) {
+    const auto dense = feature_curve_samples(curve, c);
+    double peak = -1, rate = -1, peak_t = 0, rate_t = 0;
+    for (double t:dense) {
+      const auto g = geometry(curve, t);
+      if (std::abs(g.curvature) > peak) {peak = std::abs(g.curvature);peak_t = t;}
+      if (std::abs(g.rate) > rate) {rate = std::abs(g.rate);rate_t = t;}
+    }
+    out.push_back(peak_t);out.push_back(rate_t);
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+  }
+  return out;
+}
+struct RefinementSpan {std::size_t begin, end;double priority;};
+std::vector<RefinementSpan> refinement_spans(
+  const std::vector<Bezier> & curves, const PathProcessingConfig & c)
+{
+  std::vector<RefinementSpan> spans;
+  const double k_target = 1 / c.window_target_radius;
+  const double q_target = k_target / c.window_transition_scale;
+  for (std::size_t i = 0; i < curves.size(); ++i) {
+    double severity = 0;
+    for (double t:feature_curve_samples(curves[i], c)) {
+      const auto g = geometry(curves[i], t);
+      severity = std::max(
+        {severity, std::abs(g.curvature) / k_target,
+          std::abs(g.rate) / q_target});
+    }
+    if (severity <= 1) {continue;}
+    const std::size_t begin = i ? i - 1 : 0, end = std::min(curves.size(), i + 2);
+    if (!spans.empty() && begin < spans.back().end) {
+      spans.back().end = end;spans.back().priority = std::max(spans.back().priority, severity);
+    } else {spans.push_back({begin, end, severity});}
+  }
+  std::stable_sort(
+    spans.begin(), spans.end(), [](const auto & a, const auto & b) {
+      return a.priority > b.priority;
+    });
+  return spans;
+}
 struct GeometricCost
 {
   const DistanceField & field;
   const std::vector<PathPoint2D> & ref;
   const PathProcessingConfig & c;
   double reference_length;
+  std::vector<double> parameters;
   bool operator()(double const * const * p, double * r) const
   {
     const auto b = geometry_policy_curve(p[0], p[1]);const auto d = array_derivative(b);
     const double kn = 1 / c.window_target_radius, qn = kn / c.window_transition_scale;
     std::size_t out = 0;double maximum = 0;
-    for (std::size_t j = 0; j <= c.window_objective_samples; ++j) {
-      const double t = static_cast<double>(j) / c.window_objective_samples;
+    for (std::size_t j = 0; j < parameters.size(); ++j) {
+      const double t = parameters[j];
       const auto g = geometry(b, t);if (!std::isfinite(g.curvature) || !std::isfinite(g.rate)) {
         return false;
       }
       maximum = std::max(maximum, std::abs(g.curvature));
-      const double weight = std::sqrt(
-        std::max(1e-10, norm(array_value(d, t))) /
-        (c.window_refine_objective ? reference_length : 1.0) /
-        c.window_objective_samples * ((j == 0 || j == c.window_objective_samples) ? .5 : 1));
+      const double measure = std::max(1e-10, norm(array_value(d, t))) /
+        (c.window_refine_objective ? reference_length : 1.0);
+      const double weight = c.window_feature_refinement ? std::sqrt(
+        measure * ((j ? t - parameters[j - 1] : 0.0) +
+        (j + 1 < parameters.size() ? parameters[j + 1] - t : 0.0)) / 2) :
+        std::sqrt(
+        measure / c.window_objective_samples *
+        ((j == 0 || j == c.window_objective_samples) ? .5 : 1));
       const auto q = nearest(g.point, ref);
       r[out++] = weight * std::sqrt(c.window_curvature_weight) * g.curvature / kn;
       r[out++] = weight * std::sqrt(c.window_rate_weight) * g.rate / qn;
@@ -442,7 +495,9 @@ struct GeometricCost
         b, static_cast<double>(j) / c.window_objective_samples,
         static_cast<double>(j + 1) / c.window_objective_samples);
       const double chord = std::max(1e-10, dist(leaf.front(), leaf.back()));
-      const auto bound = bounds(leaf, chord * c.window_min_tangent_ratio);
+      const auto bound = c.window_feature_refinement ?
+        fixed_bounds(leaf, chord * c.window_min_tangent_ratio) :
+        bounds(leaf, chord * c.window_min_tangent_ratio);
       const double weight = std::sqrt(c.window_constraint_weight * chord);
       r[out++] = weight * std::max(
         0.0,
@@ -500,6 +555,50 @@ struct Metrics
            ",\"length\":" + num(length) + ",\"total\":" + num(total()) + '}';
   }
 };
+struct RegionQuality {double curvature = 0, rate = 0, rms = 0;};
+RegionQuality region_quality(
+  const std::vector<PathPoint2D> & path, const std::vector<double> & mapping,
+  double begin, double end)
+{
+  RegionQuality out;double length = 0, cost = 0;
+  for (std::size_t i = 0; i + 1 < path.size(); ++i) {
+    const double overlap = std::min(end, mapping[i + 1]) - std::max(begin, mapping[i]);
+    if (overlap <= 1e-10) {continue;}
+    const double ds = dist(xy(path[i]), xy(path[i + 1]));
+    const double fraction = overlap / (mapping[i + 1] - mapping[i]);
+    out.curvature = std::max(out.curvature, path[i].curvature_bound);
+    out.rate = std::max(out.rate, path[i].curvature_rate_bound);
+    cost += path[i + 1].stop_required ? 0.0 :
+      std::pow(path[i + 1].curvature - path[i].curvature, 2) / ds * fraction;
+    length += ds * fraction;
+  }
+  out.rms = length > 0 ? std::sqrt(cost / length) : 0;
+  return out;
+}
+bool feature_regions_not_worse(
+  const std::vector<PathPoint2D> & candidate, const std::vector<double> & source,
+  const std::vector<PathPoint2D> & previous, const std::vector<double> & previous_source,
+  const TurnFeatures & features, const PathProcessingConfig & config)
+{
+  std::vector<double> edges{0.0};
+  for (std::size_t i = 1; i < features.turns.size(); ++i) {
+    // Strongly coupled turns share a guard region, including their transition
+    // margin. Do not freeze tiny low-curvature subintervals inside an S bend.
+    if (features.turns[i].begin - features.turns[i - 1].end > config.window_merge_gap) {
+      edges.push_back((features.turns[i - 1].end + features.turns[i].begin) / 2);
+    }
+  }
+  edges.push_back(previous_source.back());
+  for (std::size_t i = 1; i < edges.size(); ++i) {
+    if (edges[i] - edges[i - 1] <= 1e-10) {continue;}
+    const auto a = region_quality(previous, previous_source, edges[i - 1], edges[i]);
+    const auto b = region_quality(candidate, source, edges[i - 1], edges[i]);
+    if (b.curvature > a.curvature + 1e-8 || b.rate > a.rate + 1e-8 || b.rms > a.rms + 1e-8) {
+      return false;
+    }
+  }
+  return true;
+}
 Metrics metrics(
   const std::vector<PathPoint2D> & path, const std::vector<PathPoint2D> & ref,
   const PathProcessingConfig & c, const DistanceField & field, bool baseline = false)
@@ -546,10 +645,16 @@ Metrics curve_metrics(
   const double kn = 1 / c.window_target_radius, qn = kn / c.window_transition_scale;
   for (const auto & b:curves) {
     const auto derivative = array_derivative(b);
-    for (std::size_t j = 0; j <= c.window_objective_samples; ++j) {
-      const double t = static_cast<double>(j) / c.window_objective_samples;
+    const auto parameters = objective_parameters(b, c);
+    for (std::size_t j = 0; j < parameters.size(); ++j) {
+      const double t = parameters[j];
       const auto g = geometry(b, t);const auto q = nearest(g.point, ref);
-      const double ds = norm(array_value(derivative, t)) / c.window_objective_samples *
+      const double dt = c.window_feature_refinement ?
+        ((j ? t - parameters[j - 1] : 0.0) +
+        (j + 1 < parameters.size() ? parameters[j + 1] - t : 0.0)) / 2 :
+        ((j == 0 || j == c.window_objective_samples) ? .5 : 1) / c.window_objective_samples;
+      const double ds = c.window_feature_refinement ? norm(array_value(derivative, t)) * dt :
+        norm(array_value(derivative, t)) / c.window_objective_samples *
         ((j == 0 || j == c.window_objective_samples) ? .5 : 1);
       const double w = ds / denominator;m.length += ds;
       m.curvature += w * c.window_curvature_weight * std::pow(g.curvature / kn, 2);
@@ -648,6 +753,12 @@ std::vector<PathPoint2D> optimize_window_geometry(
       for (const auto & q:ref) {
         original_peak = std::max(original_peak, q.curvature_bound);
       }
+      window_config.window_feature_refinement = window_config.window_feature_refinement &&
+        original_peak > window_config.window_feature_min_curvature + 1e-10;
+      const auto features = window_config.window_feature_refinement ?
+        path_turn_features(ref, window_config) : TurnFeatures{};
+      window_config.window_feature_refinement = window_config.window_feature_refinement &&
+        features.turns.size() >= window_config.window_feature_min_turns;
       const auto window_events = static_cast<std::size_t>(std::count_if(
           ev.begin(), ev.end(),
           [&](auto e) {return e.a >= w.a && e.b <= w.b;}));
@@ -662,10 +773,21 @@ std::vector<PathPoint2D> optimize_window_geometry(
       if (window_config.window_refine_objective && window_config.window_refine_rate_weight >= 0) {
         window_config.window_rate_weight = window_config.window_refine_rate_weight;
       }
+      if (window_config.window_feature_refinement) {
+        window_config.window_refine_objective = true;
+        window_config.window_max_curvature_weight = std::max(
+          window_config.window_max_curvature_weight, window_config.window_peak_weight);
+        window_config.window_rate_weight = window_config.window_feature_rate_weight;
+      }
       auto objective_config = window_config;
       if (window_config.window_refine_objective && original_peak > 0) {
         objective_config.arc_min_radius = std::max(window_config.arc_min_radius, 1 / original_peak);
       }
+      auto preserved_objective = objective_config;
+      preserved_objective.window_feature_refinement = false;
+      preserved_objective.window_max_curvature_weight = c.window_max_curvature_weight;
+      preserved_objective.window_rate_weight = c.window_refine_rate_weight >= 0 ?
+        c.window_refine_rate_weight : c.window_rate_weight;
       const auto base_metrics = window_config.window_refine_objective ? selection_metrics(
         ref, ref,
         window_config,
@@ -694,7 +816,7 @@ std::vector<PathPoint2D> optimize_window_geometry(
         }
       }
       const bool splittable = cut > w.a;
-      const double parent_budget = allocation *
+      double parent_budget = allocation *
         (splittable ? window_config.window_parent_budget_fraction : 1.0);
       const auto fit_started = Clock::now();
       const auto fitted_knots = initial_knots(ref, window_config);
@@ -712,6 +834,7 @@ std::vector<PathPoint2D> optimize_window_geometry(
         };
       bool adopted = false;double winning = base_metrics.total();
       auto selected_points = ref;std::vector<double> selected_knots, selected_reference_knots;
+      auto selected_source = ss;
       std::string candidates = "[", search_end = "completed", selected = "null";
       std::size_t attempts = 0;
       std::vector<std::size_t> seed_order;
@@ -724,19 +847,32 @@ std::vector<PathPoint2D> optimize_window_geometry(
           seed_order.begin() + coarse_index + 1);
       }
       const auto ordinary_trials = seed_order.size();
+      if (window_config.window_feature_refinement) {
+        // Keep the existing coarse/fitted seeds as alternatives to the feature seed.
+        seed_order.insert(seed_order.begin() + 1, ordinary_trials + 1);
+      }
       if (window_config.window_local_refinement) {
         seed_order.insert(
           seed_order.begin() + (window_config.window_prioritize_coarse_seed ? 1 :
           ordinary_trials), window_config.window_seed_scales.size());
+        if (window_config.window_feature_refinement) {
+          for (std::size_t pass = 1; pass < window_config.window_feature_max_passes; ++pass) {
+            seed_order.push_back(ordinary_trials + 1 + pass);
+          }
+        }
       }
       std::string refinement_status =
         window_config.window_local_refinement ? "not_attempted" : "disabled";
       for (std::size_t order = 0; order < seed_order.size(); ++order) {
         const auto seed_index = seed_order[order];
-        const bool local = seed_index == window_config.window_seed_scales.size();
+        const bool feature_seed = seed_index == ordinary_trials + 1;
+        const bool local = seed_index == ordinary_trials || seed_index > ordinary_trials + 1;
+        const bool preserve_seed = window_config.window_feature_refinement && order == 0 &&
+          seed_index == coarse_index;
+        const auto & solve_config = preserve_seed ? preserved_objective : objective_config;
         const auto ordinary_remaining = std::count_if(
           seed_order.begin() + order, seed_order.end(),
-          [&](auto i) {return i < window_config.window_seed_scales.size();});
+          [&](auto i) {return i < ordinary_trials || i == ordinary_trials + 1;});
         if (local && (!adopted || selected_knots.empty())) {
           refinement_status = "no_adopted_curve";continue;
         }
@@ -748,17 +884,35 @@ std::vector<PathPoint2D> optimize_window_geometry(
           break;
         }
         auto knots = local ? selected_reference_knots : fitted_knots;
-        const bool coarse = !local && window_config.window_include_coarse_seed &&
-          seed_index == coarse_index;
-        const double seed_scale = local ? 1.0 : window_config.window_seed_scales[seed_index];
+        const bool coarse = feature_seed || (!local && window_config.window_include_coarse_seed &&
+          seed_index == coarse_index);
+        const double seed_scale = local || feature_seed ? 1.0 :
+          window_config.window_seed_scales[seed_index];
         const std::string seed_type =
-          local ? "local_refinement" : coarse ? "coarse_spaced" : "baseline_fit";
+          preserve_seed ? "preserved_coarse" : local ? "local_refinement" : feature_seed ?
+          "feature_spaced" :
+          coarse ? "coarse_spaced" : "baseline_fit";
         if (coarse) {
           knots.clear();
           const auto count =
             static_cast<std::size_t>(std::ceil(ss.back() / window_config.window_knot_spacing));
           for (std::size_t j = 0; j <= count; ++j) {
             knots.push_back(ss.back() * j / count);
+          }
+          if (feature_seed) {
+            std::vector<double> anchors = features.zero_crossings;
+            for (const auto & turn:features.turns) {
+              anchors.push_back(turn.peak_s);
+            }
+            for (double anchor:anchors) {
+              const auto next = std::lower_bound(knots.begin(), knots.end(), anchor);
+              if (next == knots.end() || next == knots.begin()) {continue;}
+              if (std::min(*next - anchor, anchor - *(next - 1)) >=
+                window_config.window_feature_knot_min_spacing)
+              {
+                knots.insert(next, anchor);
+              }
+            }
           }
         }
         if (knots.size() > window_config.window_max_knots) {
@@ -775,23 +929,31 @@ std::vector<PathPoint2D> optimize_window_geometry(
         auto p = local ? selected_knots : parameters(ref, ss, knots, seed_scale);
         std::size_t active_begin = 0, active_end = knots.size() - 1;
         if (local) {
-          double peak = 0;std::size_t peak_segment = 0;
-          const auto selected_curves = curves(p);
-          for (std::size_t j = 0; j < selected_curves.size(); ++j) {
-            for (std::size_t k = 0; k <= window_config.window_objective_samples; ++k) {
-              const double value = std::abs(
-                geometry(
-                  selected_curves[j],
-                  static_cast<double>(k) / window_config.window_objective_samples).curvature);
-              if (value > peak) {peak = value;peak_segment = j;}
+          if (window_config.window_feature_refinement) {
+            const auto spans = refinement_spans(curves(p), window_config);
+            const auto pass = seed_index == ordinary_trials ? 0 : seed_index - ordinary_trials - 1;
+            if (pass >= spans.size()) {refinement_status = "no_remaining_hotspot_group";continue;}
+            active_begin = spans[pass].begin;active_end = spans[pass].end;
+            refinement_status = "attempted";
+          } else {
+            double peak = 0;std::size_t peak_segment = 0;
+            const auto selected_curves = curves(p);
+            for (std::size_t j = 0; j < selected_curves.size(); ++j) {
+              for (std::size_t k = 0; k <= window_config.window_objective_samples; ++k) {
+                const double value = std::abs(
+                  geometry(
+                    selected_curves[j],
+                    static_cast<double>(k) / window_config.window_objective_samples).curvature);
+                if (value > peak) {peak = value;peak_segment = j;}
+              }
             }
+            if (peak <= 1 / window_config.window_target_radius) {
+              refinement_status = "no_peak_over_target";continue;
+            }
+            active_begin = peak_segment ? peak_segment - 1 : 0;
+            active_end = std::min(knots.size() - 1, peak_segment + 2);
+            refinement_status = "attempted";
           }
-          if (peak <= 1 / window_config.window_target_radius) {
-            refinement_status = "no_peak_over_target";continue;
-          }
-          active_begin = peak_segment ? peak_segment - 1 : 0;
-          active_end = std::min(knots.size() - 1, peak_segment + 2);
-          refinement_status = "attempted";
         }
         const auto initial = p;const auto seed_started = Clock::now();
         auto seed_check = certify_geometry(
@@ -818,7 +980,7 @@ std::vector<PathPoint2D> optimize_window_geometry(
         }
         const auto residual_started = Clock::now();
         ceres::Problem problem;double maximum_parameter = 0;
-        if (window_config.window_max_curvature_weight > 0) {
+        if (solve_config.window_max_curvature_weight > 0) {
           for (const auto & b:curves(p)) {
             for (std::size_t j = 0; j <= window_config.window_objective_samples; ++j) {
               maximum_parameter = std::max(
@@ -832,7 +994,7 @@ std::vector<PathPoint2D> optimize_window_geometry(
           problem.AddResidualBlock(
             new ceres::AutoDiffCostFunction<PeakCost, 1, 1>(
               new PeakCost{std::sqrt(
-                  window_config.window_max_curvature_weight)}), nullptr, &maximum_parameter);
+                  solve_config.window_max_curvature_weight)}), nullptr, &maximum_parameter);
           problem.SetParameterLowerBound(&maximum_parameter, 0, 0);
         }
         // Per-segment references avoid repeated searches over an entire long window.
@@ -849,16 +1011,18 @@ std::vector<PathPoint2D> optimize_window_geometry(
             ss.begin(), ss.end(), std::min(
               ss.back(), knots[j] + window_config.window_knot_spacing));
           local_refs.emplace_back(ref.begin() + (lo - ss.begin()), ref.begin() + (hi - ss.begin()));
+          const auto parameters = objective_parameters(
+            geometry_policy_curve(p.data() + 5 * (j - 1), p.data() + 5 * j), solve_config);
           auto * cost = new ceres::DynamicNumericDiffCostFunction<GeometricCost, ceres::CENTRAL>(
-            new GeometricCost{field, local_refs.back(), objective_config, ss.back()});
+            new GeometricCost{field, local_refs.back(), solve_config, ss.back(), parameters});
           cost->AddParameterBlock(5);cost->AddParameterBlock(5);
-          if (window_config.window_max_curvature_weight > 0) {cost->AddParameterBlock(1);}
+          if (solve_config.window_max_curvature_weight > 0) {cost->AddParameterBlock(1);}
           cost->SetNumResiduals(
-            static_cast<int>(8 * (window_config.window_objective_samples + 1) + 3 *
+            static_cast<int>(8 * parameters.size() + 3 *
             window_config.window_objective_samples +
-            (window_config.window_max_curvature_weight > 0 ? 1 : 0)));
+            (solve_config.window_max_curvature_weight > 0 ? 1 : 0)));
           std::vector<double *> blocks{p.data() + 5 * (j - 1), p.data() + 5 * j};
-          if (window_config.window_max_curvature_weight > 0) {blocks.push_back(&maximum_parameter);}
+          if (solve_config.window_max_curvature_weight > 0) {blocks.push_back(&maximum_parameter);}
           problem.AddResidualBlock(cost, nullptr, blocks);
           if (j > 1) {
             auto * join = new ceres::DynamicNumericDiffCostFunction<JoinCost, ceres::CENTRAL>(
@@ -950,6 +1114,17 @@ std::vector<PathPoint2D> optimize_window_geometry(
           result = cert.reason;
           if (cert.safe) {
             bool free = true;
+            std::vector<double> candidate_source;
+            for (double q:cert.curve_parameter) {
+              const auto i = std::min<std::size_t>(knots.size() - 2, static_cast<std::size_t>(q));
+              candidate_source.push_back(knots[i] + (q - i) * (knots[i + 1] - knots[i]));
+            }
+            if (window_config.window_feature_refinement && !feature_regions_not_worse(
+                cert.points, candidate_source, selected_points, selected_source, features,
+                window_config))
+            {
+              free = false;result = "feature_region_regression";
+            }
             for (std::size_t i = 0; i < cert.envelopes.size() && free; ++i) {
               for (std::size_t j = i + 2; j < cert.envelopes.size(); ++j) {
                 if (segment_distance(
@@ -981,7 +1156,7 @@ std::vector<PathPoint2D> optimize_window_geometry(
                     p.data() + 5 * (j + 1)), 0).rate) * window_config.window_target_radius * window_config.window_transition_scale,
                 2) / ss.back();
             }
-            if (window_config.window_refine_objective) {
+            if (window_config.window_refine_objective && !window_config.window_feature_refinement) {
               candidate_metrics = selection_metrics(cert.points, ref, window_config, field);
             }
             if (local) {
@@ -1041,8 +1216,14 @@ std::vector<PathPoint2D> optimize_window_geometry(
                 best = std::move(candidate);mapping = std::move(source);length_bounds = std::move(
                   candidate_bounds);winning = candidate_metrics.total();
                 selected_points = cert.points;selected_knots = p;
+                selected_source = std::move(candidate_source);
                 selected_reference_knots = knots;
                 adopted = true;result = "accepted";selected = std::to_string(seed_index);
+                if (window_config.window_feature_refinement) {
+                  // Accepted parents never use child fallback. Reuse its reserved
+                  // share for bounded warm refinement, within the original allocation.
+                  parent_budget = allocation;
+                }
               }
             }
           }
@@ -1111,6 +1292,9 @@ std::vector<PathPoint2D> optimize_window_geometry(
             1 / window_config.arc_min_radius,
             original_peak)) +
         ",\"turn_events\":" + std::to_string(window_events) +
+        ",\"feature_refinement\":" + (window_config.window_feature_refinement ? "true" : "false") +
+        ",\"physical_turns\":" + std::to_string(features.turns.size()) +
+        ",\"zero_crossings_s\":" + array(features.zero_crossings) +
         ",\"evaluation_basis\":" + json_quote(
           window_config.window_refine_objective ?
           "common_uniform_arc_samples" : "legacy_mixed") +

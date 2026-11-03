@@ -8,6 +8,8 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 from zoneinfo import ZoneInfo
 
@@ -17,14 +19,17 @@ from run_bezier_refine import check_protected, prepare, sha, snapshot, write_jso
 
 
 def execute(binary, case, output, variant, profile, overrides=None, speed_only=False,
-            coordination=False):
+            coordination=False, fixed_work=False, speed_time_limit=None):
     output.mkdir(parents=True, exist_ok=False)
     planner = deepcopy(case['planner'])
     params = planner['planner']['ros__parameters']['post_processing']
     params.update(overrides or {})
     params.update(enable_window_bezier=True, enable_turn_speed_coordination=coordination,
                   window_geometry_policy='geometry_first', window_detailed_diagnostics=True)
-    if (params['window_solver_seconds'], params['window_total_seconds'],
+    if fixed_work:
+        # Scope equivalence only; never used for default-budget acceptance.
+        params.update(window_solver_seconds=20., window_total_seconds=60.)
+    elif (params['window_solver_seconds'], params['window_total_seconds'],
             params['window_iterations']) != (.25, 1.0, 50):
         raise ValueError('Acceptance requires unchanged default solver budgets')
     motion = deepcopy(case['motion'])
@@ -41,6 +46,8 @@ def execute(binary, case, output, variant, profile, overrides=None, speed_only=F
                '-p', f'benchmark_input_file:={Path(case["input"]).resolve()}',
                '-p', f'benchmark_profile_input:={Path(profile).resolve()}',
                '-p', f'benchmark_output_dir:={output.resolve()}']
+    if speed_time_limit is not None:
+        command += ['-p', f'benchmark_speed_time_limit:={speed_time_limit}']
     write_json(output/'command.json', command)
     env = dict(os.environ, ROS_LOCALHOST_ONLY='1',
                ROS_LOG_DIR=str((output/'ros_logs').resolve()))
@@ -59,6 +66,7 @@ def main():
     parser.add_argument('--config', type=Path, default=Path('src/plan/config/joint_bezier.yaml'))
     parser.add_argument('--stage', choices=['baseline', 'geometry'], default='baseline')
     parser.add_argument('--cases', nargs='+')
+    parser.add_argument('--attempt', help='New geometry attempt; retains previous failed runs')
     args = parser.parse_args()
     settings = yaml.safe_load(args.config.read_text())['joint_bezier']
     config = yaml.safe_load(Path('src/plan/config/bezier_benchmark.yaml').read_text())['benchmark']
@@ -71,6 +79,9 @@ def main():
     from ament_index_python.packages import get_package_prefix
     binary = (Path(get_package_prefix('plan'))/'lib/plan/bezier_benchmark').resolve()
     root = args.root
+    if args.attempt and (args.stage != 'geometry' or not re.fullmatch(r'[A-Za-z0-9_-]+', args.attempt)):
+        parser.error('Attempts require geometry stage and a simple directory name')
+    work_root = root/'attempts'/args.attempt if args.attempt else root
     if not (root/'inputs.json').exists():
         if args.stage != 'baseline':
             parser.error('Run the baseline stage first')
@@ -83,10 +94,15 @@ def main():
         cases = json.loads((root/'inputs.json').read_text())
         if settings != json.loads((root/'joint_configuration.json').read_text()):
             raise ValueError('Frozen experiment settings changed; use a new root')
+    if args.stage == 'geometry':
+        gate = json.loads((root/'baseline_acceptance.json').read_text())
+        if not gate['pass']:
+            raise ValueError('Frozen paired baseline acceptance has not passed')
     check_protected(root)
-    stage = root/args.stage
-    stage.mkdir(exist_ok=False)
+    stage = work_root/args.stage
+    stage.mkdir(parents=True, exist_ok=False)
     snapshot(stage, binary)
+    shutil.copy2(binary, stage/'bezier_benchmark')
     write_json(stage/'started.json', {'time': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
                                     'stage': args.stage, 'cases': args.cases})
     for repeat in range(settings['repeats']):
@@ -102,7 +118,12 @@ def main():
                 execute(binary, case, root/'A'/name, 'A', geometry,
                         speed_only=True, coordination=True)
             else:
-                execute(binary, case, root/'B0'/name, 'B0', case['profile'],
+                # Wall-clock bounded solvers require same-binary controls, even
+                # when the new feature is disabled outside its intended scope.
+                geometry = execute(binary, case, work_root/'control'/'A0'/name, 'A0', case['profile'])
+                execute(binary, case, work_root/'control'/'A'/name, 'A', geometry,
+                        speed_only=True, coordination=True)
+                execute(binary, case, work_root/'B0'/name, 'B0', case['profile'],
                         settings['geometry_overrides'])
             print(args.stage, name, flush=True)
     check_protected(root)

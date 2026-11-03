@@ -70,6 +70,14 @@ struct PathProcessingConfig
   bool window_include_coarse_seed = true;
   bool window_refine_objective = false, window_prioritize_coarse_seed = false;
   bool window_local_refinement = false;
+  bool window_feature_refinement = false;
+  double window_feature_enter_curvature = 0.15, window_feature_exit_curvature = 0.05;
+  double window_feature_min_length = 0.12, window_feature_knot_min_spacing = 0.15;
+  double window_feature_bound_tolerance = 0.05;
+  double window_feature_rate_weight = 4.0;
+  double window_feature_min_curvature = 2.0;
+  std::size_t window_feature_min_turns = 4, window_feature_max_passes = 3;
+  std::size_t window_feature_sample_depth = 3;
   double window_peak_weight = 1.0, window_max_curvature_weight = 0.0;
   double window_coarse_budget_fraction = 0.7;
   double window_refine_min_curvature = 0.0, window_refine_rate_weight = -1.0;
@@ -98,6 +106,11 @@ struct PathProcessingConfig
   std::size_t coordination_max_rounds = 20;
   bool coordination_enable_platforms = true;
   double coordination_platform_min_speed = 0.20, coordination_platform_min_length = 0.30;
+  std::string coordination_policy = "legacy";
+  double coordination_max_time_loss = 0.02;
+  double coordination_group_max_gap = 1.0, coordination_curvature_threshold = 0.10;
+  std::size_t coordination_max_candidates = 512;
+  std::vector<double> coordination_trim_fractions{0.05, 0.1, 0.15, 0.25, 0.4, 0.6, 0.8, 1.0};
 };
 
 struct CandidateDiagnostic
@@ -137,6 +150,7 @@ struct PathProcessingStats
   bool dynamic_budget = false, speed_envelope_fallback = false;
   std::string geometry_policy, final_geometry_id, geometry_fallback_reason;
   std::string geometry_reference_s;
+  std::string coordination_report;
 };
 
 void validate_path_processing_config(const PathProcessingConfig & config);

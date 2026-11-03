@@ -141,6 +141,28 @@ inline PathProcessingConfig load_processing_config(rclcpp::Node & node)
     node, "post_processing.window_prioritize_coarse_seed", c.window_prioritize_coarse_seed);
   c.window_local_refinement = processing_parameter<bool>(
     node, "post_processing.window_local_refinement", c.window_local_refinement);
+  c.window_feature_refinement = processing_parameter<bool>(
+    node, "post_processing.window_feature_refinement", c.window_feature_refinement);
+  c.window_feature_enter_curvature = processing_parameter<double>(
+    node, "post_processing.window_feature_enter_curvature", c.window_feature_enter_curvature);
+  c.window_feature_exit_curvature = processing_parameter<double>(
+    node, "post_processing.window_feature_exit_curvature", c.window_feature_exit_curvature);
+  c.window_feature_min_length = processing_parameter<double>(
+    node, "post_processing.window_feature_min_length", c.window_feature_min_length);
+  c.window_feature_knot_min_spacing = processing_parameter<double>(
+    node, "post_processing.window_feature_knot_min_spacing", c.window_feature_knot_min_spacing);
+  c.window_feature_bound_tolerance = processing_parameter<double>(
+    node, "post_processing.window_feature_bound_tolerance", c.window_feature_bound_tolerance);
+  c.window_feature_rate_weight = processing_parameter<double>(
+    node, "post_processing.window_feature_rate_weight", c.window_feature_rate_weight);
+  c.window_feature_min_curvature = processing_parameter<double>(
+    node, "post_processing.window_feature_min_curvature", c.window_feature_min_curvature);
+  c.window_feature_min_turns = positive_count(
+    "post_processing.window_feature_min_turns", c.window_feature_min_turns);
+  c.window_feature_max_passes = positive_count(
+    "post_processing.window_feature_max_passes", c.window_feature_max_passes);
+  c.window_feature_sample_depth = positive_count(
+    "post_processing.window_feature_sample_depth", c.window_feature_sample_depth);
   const auto refine_events = processing_parameter<std::int64_t>(
     node, "post_processing.window_refine_min_events", c.window_refine_min_events);
   if (refine_events < 0) {throw std::invalid_argument("Invalid refinement event count");}
@@ -266,6 +288,18 @@ inline PathProcessingConfig load_processing_config(rclcpp::Node & node)
   c.coordination_enable_platforms = processing_parameter<bool>(
     node,
     "post_processing.coordination_enable_platforms", c.coordination_enable_platforms);
+  c.coordination_policy = processing_parameter<std::string>(
+    node, "post_processing.coordination_policy", c.coordination_policy);
+  c.coordination_max_time_loss = processing_parameter<double>(
+    node, "post_processing.coordination_max_time_loss", c.coordination_max_time_loss);
+  c.coordination_group_max_gap = processing_parameter<double>(
+    node, "post_processing.coordination_group_max_gap", c.coordination_group_max_gap);
+  c.coordination_curvature_threshold = processing_parameter<double>(
+    node, "post_processing.coordination_curvature_threshold", c.coordination_curvature_threshold);
+  c.coordination_max_candidates = positive_count(
+    "post_processing.coordination_max_candidates", c.coordination_max_candidates);
+  c.coordination_trim_fractions = processing_parameter<std::vector<double>>(
+    node, "post_processing.coordination_trim_fractions", c.coordination_trim_fractions);
   c.coordination_platform_min_speed = processing_parameter<double>(
     node,
     "post_processing.coordination_platform_min_speed", c.coordination_platform_min_speed);

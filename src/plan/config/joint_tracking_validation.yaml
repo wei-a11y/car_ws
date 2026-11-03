@@ -1,0 +1,9 @@
+joint_tracking:
+  max_position_error: 0.10
+  max_lateral_error: 0.10
+  lateral_p95_absolute_increase: 0.002
+  lateral_p95_relative_increase: 0.10
+  heading_p95_absolute_increase: 0.01
+  heading_p95_relative_increase: 0.10
+  speed_p95_absolute_increase: 0.005
+  speed_p95_relative_increase: 0.10

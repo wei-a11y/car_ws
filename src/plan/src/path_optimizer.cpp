@@ -991,6 +991,8 @@ std::string processing_report(const PathProcessingStats & stats)
     ",\"speed_events_before\":" << stats.speed_events_before <<
     ",\"speed_events_after\":" << stats.speed_events_after <<
     ",\"speed_envelope_fallback\":" << (stats.speed_envelope_fallback ? "true" : "false") <<
+    ",\"coordination\":" <<
+    (stats.coordination_report.empty() ? "null" : stats.coordination_report) <<
     ",\"windows\":" << (stats.window_report.empty() ? "[]" : stats.window_report) <<
     ",\"geometry_policy\":\"" << stats.geometry_policy <<
     "\",\"final_geometry_id\":\"" << stats.final_geometry_id <<

@@ -5,6 +5,7 @@
 #include "../src/bezier_geometry.hpp"
 #include "../src/path_experiments.hpp"
 #include "../src/path_geometry_optimizer.hpp"
+#include "../src/path_turn_features.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -349,4 +350,64 @@ TEST(PeakAwareBezier, ContinuousCertificateFindsPeakBetweenSparseObjectiveSample
   const auto result = plan::certify_geometry(grid(), {curve}, reference, c);
   EXPECT_FALSE(result.safe);
   EXPECT_EQ(result.reason, "sampled_curvature_or_rate");
+}
+
+TEST(TurnFeatures, PersistentSignedTurnsRejectFlickerAndRespectStops)
+{
+  auto c = config();std::vector<plan::PathPoint2D> path;
+  for (int i = 0; i < 50; ++i) {
+    const double k = i >= 5 && i < 15 ? 1.0 : i >= 20 && i < 30 ? -1.0 :
+      i == 35 ? 1.0 : i == 36 ? -1.0 : 0.0;
+    path.push_back({1 + i * .05, 1, 0, 0, k, false});
+  }
+  auto features = plan::path_turn_features(path, c);
+  ASSERT_EQ(features.turns.size(), 2U);
+  EXPECT_EQ(features.turns[0].sign, 1);EXPECT_EQ(features.turns[1].sign, -1);
+  ASSERT_EQ(features.zero_crossings.size(), 1U);
+  EXPECT_GE(features.zero_crossings[0], features.turns[0].peak_s);
+  EXPECT_LE(features.zero_crossings[0], features.turns[1].peak_s);
+  path[17].stop_required = true;
+  features = plan::path_turn_features(path, c);
+  EXPECT_EQ(features.turns.size(), 2U);EXPECT_TRUE(features.zero_crossings.empty());
+}
+
+TEST(TurnFeatures, IntervalGuidedSamplesFindPeakMissedByCoarseObjective)
+{
+  const auto curve = plan::bezier::hermite({1, 1}, 0, 0, {2, 2}, std::acos(-1.) / 2, 0, .1);
+  auto c = config();c.window_objective_samples = 2;
+  double coarse = 0, adaptive = 0, dense = 0;
+  for (double t:{0.0, .5, 1.0}) {
+    coarse = std::max(coarse, std::abs(plan::bezier::geometry(curve, t).curvature));
+  }
+  for (double t:plan::feature_curve_samples(curve, c)) {
+    adaptive = std::max(adaptive, std::abs(plan::bezier::geometry(curve, t).curvature));
+  }
+  for (int i = 0; i <= 10000; ++i) {
+    dense = std::max(dense, std::abs(plan::bezier::geometry(curve, i / 10000.).curvature));
+  }
+  EXPECT_GT(adaptive, 2 * coarse);EXPECT_GT(adaptive, .9 * dense);
+}
+
+TEST(TurnFeatures, InvalidHysteresisAndUnboundedSamplingAreRejected)
+{
+  auto c = config();c.window_feature_exit_curvature = c.window_feature_enter_curvature;
+  EXPECT_THROW(plan::validate_path_processing_config(c), std::invalid_argument);
+  c = config();c.window_feature_sample_depth = 7;
+  EXPECT_THROW(plan::validate_path_processing_config(c), std::invalid_argument);
+  c = config();c.window_feature_min_length = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(plan::validate_path_processing_config(c), std::invalid_argument);
+}
+
+TEST(TurnFeatures, ExhaustedCertificateBudgetRetainsFrozenSafeGeometry)
+{
+  auto c = config();c.window_geometry_policy = "geometry_first";
+  c.enable_window_bezier = c.window_feature_refinement = true;
+  c.window_feature_min_turns = 1;c.window_check_budget = 1;
+  const auto map = grid();const std::vector<plan::Point2D> raw{{1, 1}, {3, 1}, {3, 2}, {5, 2}};
+  auto old = c;old.enable_window_bezier = false;
+  const auto baseline = plan::process_path(map, raw, old);
+  plan::PathProcessingStats stats;
+  const auto result = plan::process_experiments(map, baseline, c, stats);
+  EXPECT_EQ(plan::geometry_fingerprint(result), plan::geometry_fingerprint(baseline));
+  EXPECT_NE(stats.window_report.find("physical_turns"), std::string::npos);
 }

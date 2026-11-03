@@ -4,11 +4,13 @@
 #include "path_optimizer.hpp"
 #include "bezier_geometry.hpp"
 #include "path_geometry_optimizer.hpp"
+#include "path_speed_coordination.hpp"
 
 #include <ceres/ceres.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <iomanip>
 #include <numeric>
 #include <sstream>
 #include <string>
@@ -202,7 +204,7 @@ std::vector<Window> windows(const std::vector<PathPoint2D> & p, const PathProces
   return out;
 }
 
-void coordinate_speed(
+void coordinate_legacy_speed(
   std::vector<PathPoint2D> & best, SpeedEnvelope & envelope,
   const PathProcessingConfig & c, double time_limit)
 {
@@ -293,6 +295,23 @@ void coordinate_speed(
     }
 
     if (speed_events(envelope, c) >= initial_events) {break;}
+  }
+}
+void coordinate_speed(
+  std::vector<PathPoint2D> & path, SpeedEnvelope & envelope,
+  const PathProcessingConfig & c, double time_limit, std::string * report = nullptr)
+{
+  if (!c.enable_turn_speed_coordination) {
+    if (report) {*report = "{\"policy\":\"disabled\"}";}
+    return;
+  }
+  if (c.coordination_policy == "bounded") {
+    std::string trace;
+    coordinate_bounded_speed(path, envelope, c, time_limit, trace);
+    if (report) {*report = std::move(trace);}
+  } else {
+    coordinate_legacy_speed(path, envelope, c, time_limit);
+    if (report) {*report = "{\"policy\":\"legacy\"}";}
   }
 }
 struct Objective
@@ -522,6 +541,12 @@ std::size_t path_speed_events(
 {
   return speed_events(speed_envelope(path_speed_segments(path), config.motion), config);
 }
+std::size_t speed_envelope_events(
+  const SpeedEnvelope & envelope,
+  const PathProcessingConfig & config)
+{
+  return speed_events(envelope, config);
+}
 double executable_time(const std::vector<PathPoint2D> & p, const MotionLimits & m)
 {
   if (p.size() < 2) {return 0;}
@@ -533,6 +558,65 @@ double executable_time(const std::vector<PathPoint2D> & p, const MotionLimits & 
     }
   }
   return t;
+}
+
+std::vector<PathPoint2D> process_frozen_speed(
+  const std::vector<PathPoint2D> & path, const PathProcessingConfig & c,
+  PathProcessingStats & stats, double time_limit)
+{
+  validate_path_processing_config(c);
+  if (path.empty()) {return path;}
+  if (!path.back().stop_required) {
+    throw std::invalid_argument("Frozen geometry lacks terminal stop");
+  }
+  for (const auto & p:path) {
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.yaw) ||
+      !std::isfinite(p.tangent_yaw) || !std::isfinite(p.curvature) ||
+      !std::isfinite(p.curvature_bound) || !std::isfinite(p.curvature_rate_bound) ||
+      p.curvature_bound < 0 || p.curvature_rate_bound < 0)
+    {
+      throw std::invalid_argument("Invalid frozen geometry metadata");
+    }
+  }
+  auto base = path;
+  for (std::size_t i = 0; i + 1 < base.size(); ++i) {
+    const auto & a = base[i];const auto & b = base[i + 1];
+    const double ds = dist(xy(a), xy(b));
+    if (!std::isfinite(ds) || ds <= 0) {throw std::invalid_argument("Invalid frozen segment");}
+    const double k = b.stop_required ? std::abs(a.curvature) :
+      std::max(std::abs(a.curvature), std::abs(b.curvature));
+    const double q = b.stop_required ? 0 : std::abs(b.curvature - a.curvature) / ds;
+    if (a.curvature_bound + 1e-8 < k || a.curvature_rate_bound + 1e-8 < q) {
+      throw std::invalid_argument("Frozen certificates do not cover nodal geometry");
+    }
+    base[i].speed_limit = curve_limits(c.motion, a.curvature_bound, a.curvature_rate_bound).speed;
+  }
+  base.back().speed_limit = 0;
+  auto envelope = speed_envelope(path_speed_segments(base), c.motion);
+  const auto original = envelope;
+  auto best = base;
+  stats.speed_events_before = speed_events(original, c);
+  try {
+    coordinate_speed(best, envelope, c, time_limit, &stats.coordination_report);
+    if (executable_time(best, c.motion) > time_limit + 1e-8) {
+      best = base;envelope = original;
+      stats.coordination_report = "{\"fallback\":\"time_limit\",\"attempt\":" +
+        stats.coordination_report + '}';
+    }
+  } catch (const std::runtime_error & error) {
+    best = base;envelope = original;
+    std::ostringstream out;
+    out << "{\"fallback\":\"speed_solver\",\"error\":" << std::quoted(error.what()) << '}';
+    stats.coordination_report = out.str();
+  }
+  stats.dynamic_budget = c.motion.enable_dynamic_angular_budget;
+  stats.speed_events_after = speed_events(envelope, c);
+  stats.speed_envelope_fallback = envelope.conservative_fallback;
+  stats.estimated_time = executable_time(best, c.motion);
+  stats.selected_length = lengths(best).back();stats.retained_corners = stops(best);
+  stats.final_geometry_id = geometry_fingerprint(best);
+  if (stats.geometry_policy.empty()) {stats.geometry_policy = "frozen_replay";}
+  return best;
 }
 
 std::vector<PathPoint2D> process_experiments(
@@ -551,9 +635,6 @@ std::vector<PathPoint2D> process_experiments(
     auto best = optimize_window_geometry(grid, baseline, c, stats);
     geometry_caps(best, c.motion);
     stats.dynamic_budget = c.motion.enable_dynamic_angular_budget;
-    auto envelope = speed_envelope(path_speed_segments(best), c.motion);
-    stats.speed_events_before = speed_events(envelope, c);
-    coordinate_speed(best, envelope, c, stats.frozen_baseline_time * c.window_max_time_ratio);
     if (executable_time(best, c.motion) > stats.frozen_baseline_time * c.window_max_time_ratio ||
       lengths(best).back() > stats.baseline_length * c.max_length_ratio || !global_free(grid, best))
     {
@@ -569,9 +650,8 @@ std::vector<PathPoint2D> process_experiments(
       }
       mapping << ']';stats.geometry_reference_s = mapping.str();
     }
-    envelope = speed_envelope(path_speed_segments(best), c.motion);
-    stats.speed_events_after = speed_events(envelope, c);
-    stats.speed_envelope_fallback = envelope.conservative_fallback;
+    best =
+      process_frozen_speed(best, c, stats, stats.frozen_baseline_time * c.window_max_time_ratio);
     stats.selected_length = lengths(best).back();stats.estimated_time = executable_time(
       best,
       c.motion);
