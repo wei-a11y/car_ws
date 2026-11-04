@@ -1,0 +1,19 @@
+# Initial low-speed commissioning limits, NOT measured hardware capabilities.
+# Shared by A*, LQR and Safety Gate; loaded AFTER other parameter files.
+/**:
+  ros__parameters:
+    v_nominal: 0.20
+    v_max: 0.30
+    w_max: 0.60
+    linear_acceleration: 0.10
+    linear_deceleration: 0.15
+    angular_acceleration: 1.0
+    lateral_acceleration: 0.04
+    feedforward_angular_fraction: 0.75
+    angular_acceleration_fraction: 0.75
+    min_turn_speed: 0.03
+    enable_dynamic_angular_budget: true
+    speed_envelope_rounds: 20
+    speed_search_iterations: 48
+    speed_envelope_tolerance: 0.0001
+    dynamic_budget_utilization: 0.95

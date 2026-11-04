@@ -10,5 +10,6 @@ install(
 
 install(DIRECTORY ../../world_model DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY ../../map/edited DESTINATION share/${PROJECT_NAME}/map)
+install(DIRECTORY ../../map1 DESTINATION share/${PROJECT_NAME})
 
 ament_package()

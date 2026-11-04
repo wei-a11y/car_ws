@@ -1,0 +1,76 @@
+# Real deployment overrides; algorithm defaults stay in plan/controller configs.
+# Hardware runs externally: ESP32 USB0, RPLIDAR A1M8 USB1 and odometry TF.
+# The real launch publishes the existing car_urdf.urdf and loads map1/room.yaml.
+map_server:
+  ros__parameters:
+    use_sim_time: false
+    frame_id: map
+    topic_name: /map
+    # yaml_filename is supplied by map_yaml (installed map1/room.yaml by default).
+
+planning_grid:
+  ros__parameters:
+    use_sim_time: false
+    map_topic: /map
+    raw_grid_topic: /plan/raw_grid
+    inflated_grid_topic: /plan/inflated_grid
+    expected_frame: map
+    # Inherited conservative car_ws envelope, NOT a measured real-base radius.
+    # Verify against the actual footprint before enabling motion.
+    robot_radius: 0.355
+    safety_margin: 0.25
+
+planner:
+  ros__parameters:
+    use_sim_time: false
+    inflated_grid_topic: /plan/inflated_grid
+    goal_topic: /goal_pose
+    path_topic: /plan
+    raw_path_topic: /plan/raw_path
+    profile_topic: /plan/profile
+    planning_frame: map
+    base_frame: base_footprint
+
+lqr_controller:
+  ros__parameters:
+    use_sim_time: false
+    path_topic: /plan
+    profile_topic: /plan/profile
+    require_path_profile: true
+    raw_cmd_topic: /cmd_vel_raw
+    planning_frame: map
+    base_frame: base_footprint
+    odom_frame: odom
+    odom_topic: /odom
+    pose_source: tf
+    allow_odom_fallback: false
+    # Same initial error budget as the existing navigation deployment;
+    # must remain smaller than the planning safety margin.
+    max_tracking_error: 0.2
+
+safety_gate:
+  ros__parameters:
+    use_sim_time: false
+    enable: false
+    raw_cmd_topic: /cmd_vel_raw
+    cmd_vel_topic: /cmd_vel
+    scan_topic: /scan
+    base_frame: base_footprint
+    scan_frame: laser_link  # original car_urdf.urdf; set the A1 driver's frame_id likewise
+    # Observed scan rate ~7.76 Hz (0.129 s/frame); retain the 0.30 s guard.
+    scan_timeout_sec: 0.30
+    # Conservative until real no-return semantics have been verified.
+    # Nonfinite/invalid rays in the forward sector inhibit motion.
+    allow_positive_infinity: false
+    # Initial inherited thresholds, measured from the laser, NOT the bumper.
+    # Recheck with real extrinsics, body clearance and braking distance.
+    stop_distance: 0.2
+    release_distance: 0.65
+
+amcl:
+  ros__parameters:
+    use_sim_time: false
+
+rviz2:
+  ros__parameters:
+    use_sim_time: false
