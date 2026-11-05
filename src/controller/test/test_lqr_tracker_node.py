@@ -289,6 +289,31 @@ def test_invalid_model_frames_or_base_output_rejected(node, override):
     assert 'Startup failed' in (result.stdout + result.stderr).decode()
 
 
+@pytest.mark.parametrize('output', ['/cmd_vel', '/diff_drive_controller/cmd_vel_unstamped'])
+def test_explicit_direct_output_keeps_odom_stop(node, output):
+    # The node fixture isolates DDS from the real base before either node starts.
+    outputs = []
+    node.create_subscription(Twist, output, outputs.append, 1)
+    with running(command('-p', 'allow_direct_cmd_vel:=true', '-p', f'raw_cmd_topic:={output}')):
+        h = Harness(node)
+        h.send_path()
+        spin_until(node, lambda: bool(outputs) and not zero(outputs[-1]) and
+                   bool(h.statuses) and h.statuses[-1].data == 'TRACKING')
+        assert not h.commands  # The old raw command topic has no tracker output.
+        h.emit_odom = False
+        spin_until(node, lambda: bool(outputs) and zero(outputs[-1]) and
+                   h.statuses[-1].data == 'ODOM_UNAVAILABLE')
+
+
+def test_direct_output_still_rejects_topic_collision(node):
+    result = subprocess.run(command('-p', 'allow_direct_cmd_vel:=true',
+                                    '-p', 'raw_cmd_topic:=/plan'),
+                            capture_output=True, timeout=8.0)
+    assert result.returncode != 0
+    # RMW may reject conflicting message types before wrapper topic validation.
+    assert 'Startup failed' in (result.stdout + result.stderr).decode()
+
+
 def straight_profile(path):
     message = PathProfile()
     message.path = path

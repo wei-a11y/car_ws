@@ -41,7 +41,10 @@ public:
       SafetyConfig{
         parameter<double>("forward_sector_half_angle"), parameter<double>("stop_distance"),
         parameter<double>("release_distance"), parameter<double>("max_beam_gap"),
-        parameter<bool>("allow_positive_infinity")});
+        parameter<bool>("allow_positive_infinity"),
+        parameter<bool>("allow_sparse_positive_infinity", false),
+        parameter<double>("min_valid_fraction", 0.80),
+        parameter<double>("max_valid_beam_gap", 0.105)});
     period_ = parameter<double>("publish_period");
     raw_timeout_ = parameter<double>("raw_timeout_sec");
     scan_timeout_ = parameter<double>("scan_timeout_sec");
@@ -103,6 +106,14 @@ private:
     rcl_interfaces::msg::ParameterDescriptor descriptor;
     descriptor.read_only = true;
     return declare_parameter<T>(name, descriptor);
+  }
+
+  template<typename T>
+  T parameter(const std::string & name, T default_value)
+  {
+    rcl_interfaces::msg::ParameterDescriptor descriptor;
+    descriptor.read_only = true;
+    return declare_parameter<T>(name, default_value, descriptor);
   }
 
   std::string topic(const std::string & name)
@@ -224,9 +235,19 @@ private:
         message.angle_min, message.angle_max, message.angle_increment,
         message.range_min, message.range_max, yaw, message.ranges});
     if (!assessment.valid) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "Scan rejected: reason=%s finite=%zu/%zu valid_fraction=%.4f max_valid_gap=%.6f rad",
+        assessment.reason, assessment.valid_beams, assessment.sector_beams,
+        assessment.valid_fraction, assessment.max_valid_gap);
       reject_scan("SCAN_INVALID");
       return;
     }
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 5000,
+      "Scan accepted: reason=%s finite=%zu/%zu valid_fraction=%.4f max_valid_gap=%.6f rad",
+      assessment.reason, assessment.valid_beams, assessment.sector_beams,
+      assessment.valid_fraction, assessment.max_valid_gap);
     scan_time_ = stamp;
     scan_received_ = Steady::now();
     scan_error_ = "SCAN_TIMEOUT";

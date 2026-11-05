@@ -243,6 +243,8 @@ if(BUILD_TESTING)
     test_safety_gate
     test/test_safety_gate.cpp
   )
+  target_compile_definitions(test_safety_gate PRIVATE
+    SAFETY_SCAN_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
 
   target_link_libraries(
     test_safety_gate
@@ -253,7 +255,7 @@ if(BUILD_TESTING)
     test_safety_gate_node
     test/test_safety_gate_node.py
 
-    TIMEOUT 90
+    TIMEOUT 120
 
     ENV
       "GATE_EXECUTABLE=$<TARGET_FILE:safety_gate_node>"

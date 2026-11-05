@@ -30,6 +30,12 @@ def command(*overrides):
             '-r', '/controller/safety/min_range:=/gate_test/min_range', *overrides]
 
 
+def sparse_options():
+    return ('-p', 'allow_positive_infinity:=false',
+            '-p', 'allow_sparse_positive_infinity:=true',
+            '-p', 'min_valid_fraction:=0.80', '-p', 'max_valid_beam_gap:=0.105')
+
+
 @contextmanager
 def running(arguments):
     process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -90,6 +96,7 @@ class Harness:
         self.outputs, self.statuses, self.distances = [], [], []
         self.emit_scan, self.emit_raw = True, True
         self.range = 8.0
+        self.range_overrides = {}
         self.scan_frame = 'laser_link'
         self.stamp_offset = 0
         self.raw = Twist()
@@ -140,6 +147,8 @@ class Harness:
             scan.angle_increment = (scan.angle_max - scan.angle_min) / 359
             scan.range_min, scan.range_max = 0.12, 8.0
             scan.ranges = [float(self.range)] * 360
+            for index, value in self.range_overrides.items():
+                scan.ranges[index] = value
             self.scan_pub.publish(scan)
 
     def wait(self, code, moving=False):
@@ -167,8 +176,9 @@ def test_clear_stop_hysteresis_release_and_zero_raw(node):
         spin_until(node, lambda: bool(h.outputs) and zero(h.outputs[-1]))
 
 
-def test_scan_and_raw_timeout_and_recovery(node):
-    with running(command()):
+@pytest.mark.parametrize('sparse', [False, True])
+def test_scan_and_raw_timeout_and_recovery(node, sparse):
+    with running(command(*(sparse_options() if sparse else ()))):
         h = Harness(node)
         h.wait('CLEAR', moving=True)
         h.emit_scan = False
@@ -204,8 +214,9 @@ def test_positive_infinity_no_return(node):
         spin_until(node, lambda: bool(h.distances) and h.distances[-1].data == 8.0)
 
 
-def test_wrong_frame_old_and_future_scan_stamp(node):
-    with running(command()):
+@pytest.mark.parametrize('sparse', [False, True])
+def test_wrong_frame_old_and_future_scan_stamp(node, sparse):
+    with running(command(*(sparse_options() if sparse else ()))):
         h = Harness(node)
         h.wait('CLEAR', moving=True)
         h.scan_frame = 'unverified_laser'
@@ -218,8 +229,9 @@ def test_wrong_frame_old_and_future_scan_stamp(node):
         h.wait('CLEAR', moving=True)
 
 
-def test_missing_tf_fails_closed(node):
-    with running(command()):
+@pytest.mark.parametrize('sparse', [False, True])
+def test_missing_tf_fails_closed(node, sparse):
+    with running(command(*(sparse_options() if sparse else ()))):
         h = Harness(node, tf=False)
         h.wait('TF_UNAVAILABLE')
         settle(node, 0.4)
@@ -241,12 +253,59 @@ def test_invalid_nonplanar_reverse_and_overspeed_raw(node):
             h.wait('CLEAR', moving=True)
 
 
-def test_disabled_is_zero_not_passthrough(node):
-    with running(command('-p', 'enable:=false')):
+@pytest.mark.parametrize('sparse', [False, True])
+def test_disabled_is_zero_not_passthrough(node, sparse):
+    with running(command(*(sparse_options() if sparse else ()), '-p', 'enable:=false')):
         h = Harness(node)
         h.wait('DISABLED')
         settle(node, 0.4)
         assert all(zero(message) for message in h.outputs)
+
+
+def test_sparse_returns_forward_obstacle_stop_and_invalid_recovery(node):
+    with running(command(*sparse_options())):
+        h = Harness(node)
+        h.range_overrides = {180: float('inf')}
+        h.wait('CLEAR', moving=True)
+        assert h.outputs[-1].linear.x == pytest.approx(0.15)
+        assert h.outputs[-1].angular.z == pytest.approx(0.2)
+        h.range_overrides[179] = 0.4
+        h.wait('OBSTACLE_STOP')
+        h.range_overrides[179] = 0.6
+        settle(node, 0.2)
+        h.wait('OBSTACLE_STOP')
+        h.range_overrides[179] = 0.7
+        h.wait('CLEAR', moving=True)
+        h.range = float('inf')
+        h.range_overrides = {}
+        h.wait('SCAN_INVALID')
+        h.range = 0.6
+        h.range_overrides = {180: float('inf')}
+        h.wait('OBSTACLE_STOP')
+        h.range = 8.0
+        h.wait('CLEAR', moving=True)
+
+
+@pytest.mark.parametrize('bad_range', [float('nan'), float('-inf'), 0.1, 8.1])
+def test_sparse_policy_keeps_other_invalid_returns_closed(node, bad_range):
+    with running(command(*sparse_options())):
+        h = Harness(node)
+        h.range_overrides = {180: float('inf')}
+        h.wait('CLEAR', moving=True)
+        h.range_overrides[179] = bad_range
+        h.wait('SCAN_INVALID')
+        h.range_overrides = {180: float('inf')}
+        h.wait('CLEAR', moving=True)
+
+
+def test_sparse_continuous_gap_stops_even_with_high_valid_fraction(node):
+    with running(command(*sparse_options())):
+        h = Harness(node)
+        h.wait('CLEAR', moving=True)
+        h.range_overrides = {i: float('inf') for i in range(176, 184)}
+        h.wait('SCAN_INVALID')
+        h.range_overrides = {180: float('inf')}
+        h.wait('CLEAR', moving=True)
 
 
 def test_paused_clock_and_clock_reset_stop(node):
@@ -270,6 +329,15 @@ def test_paused_clock_and_clock_reset_stop(node):
 def test_invalid_parameters_rejected(override):
     process = subprocess.run(command('-p', override), stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, timeout=10.0)
+    assert process.returncode != 0
+
+
+@pytest.mark.parametrize('override', [
+    'allow_positive_infinity:=true', 'min_valid_fraction:=0.0',
+    'min_valid_fraction:=1.01', 'max_valid_beam_gap:=0.0'])
+def test_invalid_sparse_parameters_rejected(override):
+    process = subprocess.run(command(*sparse_options(), '-p', override),
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10.0)
     assert process.returncode != 0
 
 

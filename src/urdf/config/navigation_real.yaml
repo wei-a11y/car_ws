@@ -17,8 +17,8 @@ planning_grid:
     expected_frame: map
     # Inherited conservative car_ws envelope, NOT a measured real-base radius.
     # Verify against the actual footprint before enabling motion.
-    robot_radius: 0.355
-    safety_margin: 0.25
+    robot_radius: 0.25
+    safety_margin: 0.10
 
 planner:
   ros__parameters:
@@ -59,9 +59,13 @@ safety_gate:
     scan_frame: laser_link  # original car_urdf.urdf; set the A1 driver's frame_id likewise
     # Observed scan rate ~7.76 Hz (0.129 s/frame); retain the 0.30 s guard.
     scan_timeout_sec: 0.30
-    # Conservative until real no-return semantics have been verified.
-    # Nonfinite/invalid rays in the forward sector inhibit motion.
+    # +Inf stays unknown, never a confirmed free-space distance.
     allow_positive_infinity: false
+    allow_sparse_positive_infinity: true
+    # Initial offline/isolation test limits, NOT validated hardware tolerances.
+    # NaN/-Inf/out-of-range values, excessive holes and all-missing scans stop.
+    min_valid_fraction: 0.80
+    max_valid_beam_gap: 0.105  # rad, includes both forward-sector edges
     # Initial inherited thresholds, measured from the laser, NOT the bumper.
     # Recheck with real extrinsics, body clearance and braking distance.
     stop_distance: 0.2

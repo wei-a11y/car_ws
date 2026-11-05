@@ -20,6 +20,12 @@ def _launch_nodes(context):
             'navigation_real.launch.py requires start_sim:=false. '
             'Run simulation separately in a different ROS_DOMAIN_ID.')
 
+    use_safety_gate = LaunchConfiguration('use_safety_gate').perform(context).lower() == 'true'
+    if not use_safety_gate and LaunchConfiguration('enable').perform(context).lower() != 'true':
+        raise RuntimeError(
+            'use_safety_gate:=false requires enable:=true. '
+            'For isolated checks, also set cmd_vel_topic to a debug topic.')
+
     map_name = LaunchConfiguration('map_yaml').perform(context).strip()
     if not map_name:
         raise RuntimeError(
@@ -41,6 +47,12 @@ def _launch_nodes(context):
     # Explicit last overrides prevent inherited simulation YAML from enabling
     # /clock even when the deployment parameter files are customized.
     real_time = {'use_sim_time': False}
+    tracker_overrides = dict(real_time)
+    # Keep the normal raw-topic YAML contract unless direct output is requested.
+    tracker_overrides['allow_direct_cmd_vel'] = not use_safety_gate
+    if not use_safety_gate:
+        tracker_overrides['raw_cmd_topic'] = ParameterValue(
+            LaunchConfiguration('cmd_vel_topic'), value_type=str)
 
     return [
         GroupAction(
@@ -81,9 +93,10 @@ def _launch_nodes(context):
         Node(
             package='controller', executable='lqr_tracker_node', name='lqr_controller',
             output='screen', parameters=[
-                LaunchConfiguration('lqr_params_file'), config, limits, real_time]),
+                LaunchConfiguration('lqr_params_file'), config, limits, tracker_overrides]),
         Node(
             package='controller', executable='safety_gate_node', name='safety_gate',
+            condition=IfCondition(LaunchConfiguration('use_safety_gate')),
             output='screen', parameters=[
                 str(controller / 'config/safety_gate.yaml'), config, limits, {
                     'use_sim_time': False,
@@ -118,8 +131,12 @@ def generate_launch_description():
             description='Default joint positions for display; false uses real /joint_states.'),
         DeclareLaunchArgument('rviz', default_value='true'),
         DeclareLaunchArgument(
+            'use_safety_gate', default_value='true', choices=['true', 'false'],
+            description='false bypasses Gate and sends LQR directly to cmd_vel_topic; '
+                        'requires enable:=true.'),
+        DeclareLaunchArgument(
             'enable', default_value='false',
-            description='false publishes zero commands; true enables guarded automatic motion.'),
+            description='With Gate, false publishes zero commands. Direct output requires true.'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
         DeclareLaunchArgument(
             'navigation_params_file', default_value=str(share / 'config/navigation_real.yaml')),

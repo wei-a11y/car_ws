@@ -41,8 +41,9 @@ public:
     tracker_config_ = read_tracker_config();
     tracker_ = std::make_unique<LqrTracker>(tracker_config_);
     configure_timing();
+    const bool allow_direct = parameter<bool>("allow_direct_cmd_vel", false);
     create_interfaces();
-    validate_topics();
+    validate_topics(allow_direct);
     create_timers();
 
     const auto gain = tracker_->gain();
@@ -50,8 +51,12 @@ public:
       get_logger(), "LQR K=[%.6f, %.6f], T=%.3f s, v_nom=%.3f m/s; %s -> %s",
       gain[0], gain[1], period_, tracker_config_.v_nominal,
       path_sub_->get_topic_name(), command_pub_->get_topic_name());
+    if (allow_direct) {
+      RCLCPP_INFO(get_logger(), "Safety Gate bypass enabled: direct velocity output");
+    }
     stop(
       "WAIT_PATH",
+      allow_direct ? "No path; direct output enabled, verified localization required" :
       "No path; Safety Gate and verified localization are deployment prerequisites");
   }
 
@@ -189,11 +194,13 @@ private:
       [this](nav_msgs::msg::Odometry::ConstSharedPtr message) {on_odom(*message);});
   }
 
-  void validate_topics() const
+  void validate_topics(bool allow_direct) const
   {
     const std::string output = command_pub_->get_topic_name();
-    // Raw tracker output must pass through the Safety Gate before reaching the base.
-    if (output == "/cmd_vel" || output == "/diff_drive_controller/cmd_vel_unstamped") {
+    // Direct base commands require an explicit deployment opt-in.
+    if (!allow_direct &&
+      (output == "/cmd_vel" || output == "/diff_drive_controller/cmd_vel_unstamped"))
+    {
       throw std::invalid_argument("LQR output must be a separate raw topic, never the base command");
     }
     const std::array<std::string, 7> topics = {output, status_pub_->get_topic_name(),

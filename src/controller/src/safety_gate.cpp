@@ -23,6 +23,28 @@ void validate(const SafetyConfig & config)
   {
     throw std::invalid_argument("Invalid forward sector, distances or beam coverage limit");
   }
+  if (config.allow_sparse_positive_infinity &&
+    (config.allow_positive_infinity || !std::isfinite(config.min_valid_fraction) ||
+    config.min_valid_fraction <= 0.0 || config.min_valid_fraction > 1.0 ||
+    !std::isfinite(config.max_valid_beam_gap) || config.max_valid_beam_gap <= 0.0 ||
+    config.max_valid_beam_gap > 2.0 * config.forward_sector_half_angle))
+  {
+    throw std::invalid_argument("Invalid sparse-return limits or conflicting infinity policies");
+  }
+}
+
+// Include both sector edges so missing returns cannot hide at the boundaries.
+double maximum_gap(std::vector<double> & angles, double half_angle)
+{
+  if (angles.empty()) {
+    return std::numeric_limits<double>::infinity();
+  }
+  std::sort(angles.begin(), angles.end());
+  double gap = std::max(angles.front() + half_angle, half_angle - angles.back());
+  for (std::size_t i = 1; i < angles.size(); ++i) {
+    gap = std::max(gap, angles[i] - angles[i - 1]);
+  }
+  return gap;
 }
 }  // namespace
 
@@ -49,6 +71,8 @@ ScanAssessment assess_scan(const SafetyConfig & config, const SafetyScan & scan)
     return result;
   }
   std::vector<double> angles;
+  std::vector<double> valid_angles;
+  bool invalid_beam = false;
   for (std::size_t i = 0; i < scan.ranges.size(); ++i) {
     const double angle = std::remainder(
       scan.angle_min + static_cast<double>(i) * scan.angle_increment + scan.scan_yaw, 2.0 * kPi);
@@ -60,27 +84,45 @@ ScanAssessment assess_scan(const SafetyConfig & config, const SafetyScan & scan)
     if (std::isinf(range) && range > 0.0 && config.allow_positive_infinity) {
       // Explicit simulation convention: +Inf means no return up to range_max.
       result.minimum_range = std::min(result.minimum_range, scan.range_max);
+    } else if (std::isinf(range) && range > 0.0 && config.allow_sparse_positive_infinity) {
+      // Unknown ray: contributes neither an obstacle range nor finite coverage.
+      continue;
     } else if (!std::isfinite(range) || range < scan.range_min || range > scan.range_max) {
-      return ScanAssessment{};  // A hole in the safety sector is not free space.
+      invalid_beam = true;
     } else {
+      valid_angles.push_back(angle);
       result.minimum_range = std::min(result.minimum_range, range);
     }
   }
-  if (angles.empty()) {
-    return ScanAssessment{};
+  result.sector_beams = angles.size();
+  result.valid_beams = valid_angles.size();
+  result.valid_fraction = angles.empty() ? 0.0 :
+    static_cast<double>(valid_angles.size()) / static_cast<double>(angles.size());
+  result.max_valid_gap = maximum_gap(valid_angles, config.forward_sector_half_angle);
+  if (invalid_beam) {
+    result.reason = "INVALID_BEAM";
+    return result;
   }
-  std::sort(angles.begin(), angles.end());
-  if (angles.front() + config.forward_sector_half_angle > config.max_beam_gap ||
-    config.forward_sector_half_angle - angles.back() > config.max_beam_gap)
-  {
-    return ScanAssessment{};
+  if (maximum_gap(angles, config.forward_sector_half_angle) > config.max_beam_gap) {
+    result.reason = "SECTOR_COVERAGE";
+    return result;
   }
-  for (std::size_t i = 1; i < angles.size(); ++i) {
-    if (angles[i] - angles[i - 1] > config.max_beam_gap) {
-      return ScanAssessment{};
+  if (config.allow_sparse_positive_infinity) {
+    if (valid_angles.empty()) {
+      result.reason = "NO_FINITE_RETURN";
+      return result;
+    }
+    if (result.valid_fraction < config.min_valid_fraction) {
+      result.reason = "VALID_FRACTION";
+      return result;
+    }
+    if (result.max_valid_gap > config.max_valid_beam_gap) {
+      result.reason = "VALID_BEAM_GAP";
+      return result;
     }
   }
   result.valid = true;
+  result.reason = "OK";
   return result;
 }
 

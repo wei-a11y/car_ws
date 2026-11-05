@@ -3,8 +3,10 @@
 #include "controller/safety_gate.hpp"
 
 #include <cmath>
+#include <fstream>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 #include "gtest/gtest.h"
 
@@ -154,5 +156,194 @@ TEST(SafetyGate, InvalidConfigurationIsRejected)
   changed = config();
   changed.stop_distance = std::numeric_limits<double>::quiet_NaN();
   EXPECT_THROW(controller::SafetyGate{changed}, std::invalid_argument);
+}
+
+controller::SafetyConfig sparse_config()
+{
+  auto result = config();
+  result.allow_positive_infinity = false;
+  result.allow_sparse_positive_infinity = true;
+  result.forward_sector_half_angle = 0.5;
+  return result;
+}
+
+controller::SafetyScan forward_scan(float range = 8.0F)
+{
+  return {-0.5, 0.5, 0.01, 0.12, 8.0, 0.0, std::vector<float>(101, range)};
+}
+
+TEST(SafetyGate, SparseReturnsAreUnknownAndStrictModeStillRejectsThem)
+{
+  auto message = forward_scan(2.0F);
+  for (std::size_t i = 20; i < 60; i += 2) {
+    message.ranges[i] = std::numeric_limits<float>::infinity();
+  }
+  const auto result = controller::assess_scan(sparse_config(), message);
+  ASSERT_TRUE(result.valid);
+  EXPECT_STREQ(result.reason, "OK");
+  EXPECT_EQ(result.sector_beams, 101U);
+  EXPECT_EQ(result.valid_beams, 81U);
+  EXPECT_DOUBLE_EQ(result.valid_fraction, 81.0 / 101.0);
+  EXPECT_NEAR(result.max_valid_gap, 0.02, 1e-12);
+  EXPECT_DOUBLE_EQ(result.minimum_range, 2.0);
+  auto strict = sparse_config();
+  strict.allow_sparse_positive_infinity = false;
+  EXPECT_FALSE(controller::assess_scan(strict, message).valid);
+}
+
+TEST(SafetyGate, SparseValidFractionBoundaryAndTooManyMissingReturns)
+{
+  auto message = forward_scan();
+  for (std::size_t i = 20; i < 60; i += 2) {
+    message.ranges[i] = std::numeric_limits<float>::infinity();
+  }
+  auto settings = sparse_config();
+  settings.min_valid_fraction = 81.0 / 101.0;
+  EXPECT_TRUE(controller::assess_scan(settings, message).valid);
+  settings.min_valid_fraction = std::nextafter(settings.min_valid_fraction, 1.0);
+  EXPECT_STREQ(controller::assess_scan(settings, message).reason, "VALID_FRACTION");
+  message.ranges[60] = std::numeric_limits<float>::infinity();
+  EXPECT_FALSE(controller::assess_scan(sparse_config(), message).valid);
+}
+
+TEST(SafetyGate, SparseGapBoundaryAndBothSectorEdges)
+{
+  for (const std::size_t first : {0U, 40U, 91U}) {
+    auto message = forward_scan();
+    for (std::size_t i = first; i < first + 10; ++i) {
+      message.ranges[i] = std::numeric_limits<float>::infinity();
+    }
+    auto settings = sparse_config();
+    const auto result = controller::assess_scan(settings, message);
+    EXPECT_GT(result.valid_fraction, settings.min_valid_fraction);
+    // Internal ten-ray hole spans eleven increments; edge hole spans ten.
+    EXPECT_NEAR(result.max_valid_gap, first == 40U ? 0.11 : 0.10, 1e-12);
+    settings.max_valid_beam_gap = result.max_valid_gap;
+    EXPECT_TRUE(controller::assess_scan(settings, message).valid);
+    settings.max_valid_beam_gap = std::nextafter(result.max_valid_gap, 0.0);
+    EXPECT_STREQ(controller::assess_scan(settings, message).reason, "VALID_BEAM_GAP");
+  }
+}
+
+TEST(SafetyGate, SparseAllMissingAndOtherInvalidReturnsFailClosed)
+{
+  controller::SafetyGate gate(sparse_config());
+  gate.update(forward_scan());
+  EXPECT_FALSE(gate.blocked());
+  auto result = gate.update(forward_scan(std::numeric_limits<float>::infinity()));
+  EXPECT_FALSE(result.valid);
+  EXPECT_STREQ(result.reason, "NO_FINITE_RETURN");
+  EXPECT_EQ(result.valid_beams, 0U);
+  EXPECT_TRUE(std::isinf(result.minimum_range));
+  EXPECT_TRUE(gate.blocked());
+  for (const float value : {std::numeric_limits<float>::quiet_NaN(),
+      -std::numeric_limits<float>::infinity(), 0.0F, 0.1F, 8.1F})
+  {
+    auto message = forward_scan();
+    message.ranges[40] = std::numeric_limits<float>::infinity();
+    message.ranges[50] = value;
+    result = gate.update(message);
+    EXPECT_FALSE(result.valid);
+    EXPECT_STREQ(result.reason, "INVALID_BEAM");
+    EXPECT_TRUE(gate.blocked());
+  }
+}
+
+TEST(SafetyGate, SparseNearObstacleAndInvalidScanKeepReleaseHysteresis)
+{
+  controller::SafetyGate gate(sparse_config());
+  auto message = forward_scan();
+  message.ranges[40] = std::numeric_limits<float>::infinity();
+  gate.update(message);
+  EXPECT_FALSE(gate.blocked());
+  message.ranges[50] = 0.4F;
+  ASSERT_TRUE(gate.update(message).valid);
+  EXPECT_TRUE(gate.blocked());
+  message.ranges[50] = 0.6F;
+  gate.update(message);
+  EXPECT_TRUE(gate.blocked());
+  message.ranges[50] = 0.7F;
+  gate.update(message);
+  EXPECT_FALSE(gate.blocked());
+  gate.update(forward_scan(std::numeric_limits<float>::infinity()));
+  message.ranges[50] = 0.6F;
+  gate.update(message);
+  EXPECT_TRUE(gate.blocked());
+  message.ranges[50] = 0.7F;
+  gate.update(message);
+  EXPECT_FALSE(gate.blocked());
+}
+
+TEST(SafetyGate, SparseModeRetainsRawGeometryChecks)
+{
+  auto message = forward_scan();
+  message.angle_max += 0.1;
+  EXPECT_STREQ(controller::assess_scan(sparse_config(), message).reason, "INVALID_METADATA");
+  message = forward_scan();
+  message.scan_yaw = 0.1;  // Raw lattice no longer covers the left sector edge.
+  EXPECT_STREQ(controller::assess_scan(sparse_config(), message).reason, "SECTOR_COVERAGE");
+}
+
+TEST(SafetyGate, SparseGapAcrossScanArrayBoundaryIsNotLost)
+{
+  constexpr double pi = 3.14159265358979323846;
+  auto message = forward_scan();
+  message.angle_min = -pi;
+  message.angle_increment = 2.0 * pi / 720.0;
+  message.angle_max = message.angle_min + 719.0 * message.angle_increment;
+  message.scan_yaw = pi;
+  message.ranges.assign(720, 8.0F);
+  for (std::size_t i = 0; i < 7; ++i) {
+    message.ranges[i] = std::numeric_limits<float>::infinity();
+    message.ranges[719 - i] = std::numeric_limits<float>::infinity();
+  }
+  const auto result = controller::assess_scan(sparse_config(), message);
+  EXPECT_GT(result.valid_fraction, 0.8);
+  EXPECT_NEAR(result.max_valid_gap, 15.0 * message.angle_increment, 1e-12);
+  EXPECT_STREQ(result.reason, "VALID_BEAM_GAP");
+}
+
+TEST(SafetyGate, SparseConfigurationRejectsConflictsAndInvalidThresholds)
+{
+  auto settings = sparse_config();
+  settings.allow_positive_infinity = true;
+  EXPECT_THROW(controller::SafetyGate{settings}, std::invalid_argument);
+  for (const double value : {0.0, -0.1, 1.01, std::numeric_limits<double>::quiet_NaN()}) {
+    settings = sparse_config();
+    settings.min_valid_fraction = value;
+    EXPECT_THROW(controller::SafetyGate{settings}, std::invalid_argument);
+  }
+  for (const double value : {0.0, -0.1, 1.01, std::numeric_limits<double>::infinity()}) {
+    settings = sparse_config();
+    settings.max_valid_beam_gap = value;
+    EXPECT_THROW(controller::SafetyGate{settings}, std::invalid_argument);
+  }
+}
+
+TEST(SafetyGate, CapturedRealScanRejectsStrictAndPassesBoundedSparsePolicy)
+{
+  std::ifstream input(std::string(SAFETY_SCAN_FIXTURE_DIR) + "/real_lidar.scan");
+  ASSERT_TRUE(input.is_open());
+  controller::SafetyScan message;
+  ASSERT_TRUE(
+    static_cast<bool>(input >> message.angle_min >> message.angle_max >>
+    message.angle_increment >> message.range_min >> message.range_max >> message.scan_yaw));
+  std::string token;
+  while (input >> token) {
+    message.ranges.push_back(std::stof(token));
+  }
+  ASSERT_EQ(message.ranges.size(), 720U);
+  auto settings = sparse_config();
+  settings.forward_sector_half_angle = config().forward_sector_half_angle;
+  auto strict = settings;
+  strict.allow_sparse_positive_infinity = false;
+  EXPECT_FALSE(controller::assess_scan(strict, message).valid);
+  const auto result = controller::assess_scan(settings, message);
+  ASSERT_TRUE(result.valid);
+  EXPECT_EQ(result.sector_beams, 179U);
+  EXPECT_EQ(result.valid_beams, 147U);
+  EXPECT_NEAR(result.valid_fraction, 147.0 / 179.0, 1e-12);
+  EXPECT_NEAR(result.max_valid_gap, 0.08714509196579456, 1e-9);
+  EXPECT_NEAR(result.minimum_range, 2.026, 1e-5);
 }
 }  // namespace

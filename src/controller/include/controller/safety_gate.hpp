@@ -3,6 +3,7 @@
 #ifndef CONTROLLER__SAFETY_GATE_HPP_
 #define CONTROLLER__SAFETY_GATE_HPP_
 
+#include <cstddef>
 #include <limits>
 #include <vector>
 
@@ -15,6 +16,10 @@ struct SafetyConfig
   double release_distance;
   double max_beam_gap;
   bool allow_positive_infinity;
+  // Opt-in real-sensor policy; appended defaults preserve existing callers.
+  bool allow_sparse_positive_infinity = false;
+  double min_valid_fraction = 0.80;
+  double max_valid_beam_gap = 0.105;
 };
 
 // Angles are scan-frame angles; scan_yaw rotates ray directions into base_frame.
@@ -34,6 +39,11 @@ struct ScanAssessment
 {
   bool valid = false;
   double minimum_range = std::numeric_limits<double>::infinity();
+  const char * reason = "INVALID_METADATA";
+  std::size_t sector_beams = 0;
+  std::size_t valid_beams = 0;  // Finite in-range returns only, including in simulation.
+  double valid_fraction = 0.0;
+  double max_valid_gap = std::numeric_limits<double>::infinity();
 };
 
 ScanAssessment assess_scan(const SafetyConfig & config, const SafetyScan & scan);
